@@ -239,7 +239,8 @@
     let sx = 0, n = 0;
     for (let y = y0; y < yEnd; y++) for (let i = 0; i < sw; i++) if (d[(y * sw + i) * 4 + 3] > 128) { sx += i; n++; }
     const k = cut.width / sw;
-    return { y0: y0 * k, P: Math.max(1, P * k), cx: (n ? sx / n : sw / 2) * k };
+    const m = new Uint8Array(sw * sh); for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3] > 128 ? 1 : 0;
+    return { y0: y0 * k, P: Math.max(1, P * k), cx: (n ? sx / n : sw / 2) * k, mask: { a: m, sw, sh, kx: cut.width / sw, ky: cut.height / sh } };
   }
 
   // ---------- yüz noktaları (MediaPipe Face Landmarker) ----------
@@ -301,12 +302,32 @@
         loY = Math.max(loY, -ey - ry); hiY = Math.min(hiY, h - ey - ry);
       }
       if (loX > hiX || loY > hiY) return null;
-      return { k, ang, tx: Math.min(Math.max(0, loX), hiX), ty: Math.min(Math.max(0, loY), hiY) };
+      return { k, ang, loX, hiX, tx: Math.min(Math.max(0, loX), hiX), ty: Math.min(Math.max(0, loY), hiY) };
     };
     let r = null;
     if (face.ang) for (let i = 0; i <= 4 && !r; i++) r = place(face.ang, 1 + 0.02 * i);   // eğimi düzeltmek için en fazla %8 yakınlaş
     if (!r) r = place(0, Math.max(1, W / (k0 * w), H / (k0 * h)) * 1.0001);
-    return r || { k: k0, ang: 0, tx: 0, ty: 0 };
+    return r || { k: k0, ang: 0, tx: 0, ty: 0, loX: 0, hiX: 0 };
+  }
+
+  // Alt köşelerde omuz kadrajı doldurmuyorsa (vücut kadrajdan dar ya da yana kaymış) kadrajı vücuda doğru kaydırır.
+  // Yüz en fazla kadraj genişliğinin %10'u kadar ortadan kayar.
+  function bodyShift(m, r, W, H, eyePct, ex, ey) {
+    const fw = W / r.k, fh = H / r.k;
+    const bottom = ey + r.ty + (1 - eyePct) * fh;                    // kadrajın alt kenarı (kaynak pikseli)
+    const y1 = Math.min(m.sh - 1, Math.floor(bottom / m.ky)), y0 = Math.max(0, Math.floor((bottom - 0.12 * fh) / m.ky));
+    const L = [], R = [];
+    for (let y = y0; y <= y1; y++) {                                 // kadrajın alt %12'lik şeridinde vücudun sol/sağ sınırı
+      let a = -1, b = -1;
+      for (let i = 0; i < m.sw; i++) if (m.a[y * m.sw + i]) { if (a < 0) a = i; b = i; }
+      if (a >= 0) { L.push(a * m.kx); R.push((b + 1) * m.kx); }
+    }
+    if (L.length < 3) return r.tx;
+    const med = v => v.sort((p, q) => p - q)[v.length >> 1];
+    const bl = med(L), br = med(R), cxF = ex + r.tx;
+    const want = br - bl >= fw ? Math.min(Math.max(cxF, bl + fw / 2), br - fw / 2) : (bl + br) / 2;
+    const d = Math.min(Math.max(want - cxF, -0.1 * fw), 0.1 * fw);
+    return Math.min(Math.max(r.tx + d, r.loX), r.hiX);
   }
 
   // ---------- kadraj + arka plan ----------
@@ -316,7 +337,8 @@
     if (it.face) {
       // Yüz noktalarına göre sabit kadraj: göz hizası ve göz-çene mesafesi her fotoğrafta aynı (kenara taşmadıkça)
       const { ex, ey } = it.face;
-      const { k: kOut, ang, tx, ty } = fitFrame(it.face, it.cut.width, it.cut.height, W, H, zoom, eyePct);
+      const fr = fitFrame(it.face, it.cut.width, it.cut.height, W, H, zoom, eyePct);
+      const { k: kOut, ang, ty } = fr, tx = bodyShift(it.info.mask, fr, W, H, eyePct, ex, ey);
       const IW = Math.max(W, Math.round(W / kOut)), IH = Math.round(IW * H / W);
       const q = IW * kOut / W;                           // ara tuval pikseli / kaynak pikseli
       c.width = IW; c.height = IH;
