@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="1.4">
+<meta name="version" content="1.5">
 <meta name="theme-color" content="#0f172a">
 <title>Vesikalık Arka Plan</title>
 <style>
@@ -82,13 +82,13 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v1.4</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v1.5</footer>
 
 <script>
 (() => {
   const $ = s => document.querySelector(s);
   const COLORS = [["Beyaz","#ffffff"],["Açık gri","#e5e7eb"],["Açık mavi","#bfdbfe"],["Mavi","#5b8dd6"],["Gri-mavi","#cbd5e1"]];
-  let bg = "#ffffff", items = [], removeBackground = null, cpuOnly = false, token = 0, busy = false;
+  let bg = "#ffffff", items = [], removeBackground = null, preloadFn = null, cpuOnly = false, token = 0, busy = false;
 
   // ---------- renk seçimi ----------
   const swBox = $("#sw");
@@ -133,11 +133,15 @@
     msg("Model hazırlanıyor (ilk açılışta indirilir, biraz sürebilir)...");
     const m = await import("https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm");
     removeBackground = m.removeBackground || m.default;
+    preloadFn = m.preload || null;
+    if (preloadFn) {
+      try { await preloadFn({ model: "isnet", device: "gpu", fetchArgs: { cache: "force-cache" }, progress: (k, c, t) => { if (t) msg("Model yükleniyor: %" + Math.round(c / t * 100)); } }); }
+      catch (e) { console.warn("preload", e); }
+    }
   }
   async function cutout(blob) {
     const cfg = dev => ({
-      model: "isnet", device: dev, output: { format: "image/png" },
-      progress: (k, c, t) => { if (t) msg("Model indiriliyor: %" + Math.round(c / t * 100)); }
+      model: "isnet", device: dev, output: { format: "image/png" }, fetchArgs: { cache: "force-cache" }
     });
     if (!cpuOnly) {
       try { return await removeBackground(blob, cfg("gpu")); }
@@ -271,7 +275,7 @@
     let done = 0;
     for (const it of items) {
       if (!it.cut) {
-        setSt(it, "işleniyor...");
+        setSt(it, "işleniyor..."); msg((done + 1) + " / " + items.length + " işleniyor...");
         try {
           const src = await prepare(it.file);
           const out = await cutout(src);
