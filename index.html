@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="1.8">
+<meta name="version" content="1.9">
 <meta name="theme-color" content="#0f172a">
 <title>Vesikalık Arka Plan</title>
 <style>
@@ -89,7 +89,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v1.8</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v1.9</footer>
 
 <script>
 (() => {
@@ -198,7 +198,15 @@
     const x = c.getContext("2d", { willReadFrequently: true });
     x.drawImage(bmp, 0, 0); if (bmp.close) bmp.close();
     const id = x.getImageData(0, 0, c.width, c.height), d = id.data, m = mask.data;
-    for (let i = 0; i < m.length; i++) d[i * 4 + 3] = m[i];
+    // kenar yumuşatma: maskeye 3x3 bulanıklık (tırtıklı saç/omuz kenarını önler)
+    const mw = c.width, mh = c.height, a = new Uint8ClampedArray(m.length);
+    for (let y = 0; y < mh; y++) for (let i = 0; i < mw; i++) {
+      let sum = 0, n = 0;
+      for (let dy = -1; dy <= 1; dy++) { const yy = y + dy; if (yy < 0 || yy >= mh) continue;
+        for (let dx = -1; dx <= 1; dx++) { const xx = i + dx; if (xx < 0 || xx >= mw) continue; sum += m[yy * mw + xx]; n++; } }
+      a[y * mw + i] = sum / n;
+    }
+    for (let i = 0; i < a.length; i++) d[i * 4 + 3] = a[i];
     x.putImageData(id, 0, 0);
     return new Promise(r => c.toBlob(r, "image/png"));
   }
@@ -257,7 +265,6 @@
     const f = document.createElement("canvas"); f.width = W; f.height = H;
     const fx = f.getContext("2d"); fx.imageSmoothingQuality = "high";
     fx.drawImage(c, 0, 0, W, H);
-    sharpen(fx, W, H, 0.3);
     return f;
   }
 
