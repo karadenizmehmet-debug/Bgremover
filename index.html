@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="1.6">
+<meta name="version" content="1.7">
 <meta name="theme-color" content="#0f172a">
 <title>Vesikalık Arka Plan</title>
 <style>
@@ -59,9 +59,9 @@
 
   <label class="l">Model (hız / kalite)</label>
   <select id="model">
-    <option value="isnet_quint8">Hızlı (küçük model)</option>
-    <option value="isnet_fp16" selected>Dengeli</option>
-    <option value="isnet">En iyi kenar (yavaş, büyük indirme)</option>
+    <option value="rmbg" selected>RMBG (önerilen, hızlı)</option>
+    <option value="isnet_fp16">Eski motor: Dengeli (yavaş)</option>
+    <option value="isnet">Eski motor: En iyi kenar (yavaş)</option>
   </select>
 
   <label class="l">Çıktı boyutu</label>
@@ -89,7 +89,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v1.6</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v1.7</footer>
 
 <script>
 (() => {
@@ -151,6 +151,7 @@
     warmedModel = model;
   }
   async function cutout(blob) {
+    if ($("#model").value === "rmbg") return rmbgCut(blob);
     const cfg = dev => ({
       model: $("#model").value, device: dev, output: { format: "image/png" }, fetchArgs: { cache: "force-cache" }
     });
@@ -159,6 +160,47 @@
       catch (e) { console.warn("GPU olmadı, CPU'ya geçiliyor", e); cpuOnly = true; }
     }
     return await removeBackground(blob, cfg("cpu"));
+  }
+
+  // ---------- RMBG-1.4 (transformers.js): oturum bir kez açılır, her fotoğraf hızlı işlenir ----------
+  let tf = null, rmModel = null, rmProc = null, rmDev = "GPU";
+  async function loadRmbg() {
+    if (rmModel) return;
+    msg("Model hazırlanıyor (ilk seferde indirilir, internet gerekir)...");
+    tf = await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2");
+    const { AutoModel, AutoProcessor, env } = tf;
+    env.allowLocalModels = false; env.useBrowserCache = true;
+    const progress_callback = p => { if (p.status === "progress" && p.progress != null) msg("Model indiriliyor: %" + Math.round(p.progress)); };
+    rmProc = await AutoProcessor.from_pretrained("briaai/RMBG-1.4", {
+      config: { do_normalize: true, do_pad: false, do_rescale: true, do_resize: true, image_mean: [0.5, 0.5, 0.5],
+        feature_extractor_type: "ImageFeatureExtractor", image_std: [1, 1, 1], resample: 2,
+        rescale_factor: 0.00392156862745098, size: { width: 1024, height: 1024 } }
+    });
+    const tries = [["webgpu", "fp16", "GPU"], ["webgpu", "fp32", "GPU"], ["wasm", "q8", "CPU"]];
+    let lastErr = null;
+    for (const [device, dtype, label] of tries) {
+      try {
+        rmModel = await AutoModel.from_pretrained("briaai/RMBG-1.4", { config: { model_type: "custom" }, device, dtype, progress_callback });
+        rmDev = label; return;
+      } catch (e) { console.warn("RMBG yükleme", device, dtype, e); lastErr = e; }
+    }
+    throw lastErr;
+  }
+  async function rmbgCut(blob) {
+    const { RawImage } = tf;
+    const image = await RawImage.fromBlob(blob);
+    const { pixel_values } = await rmProc(image);
+    const out = await rmModel({ input: pixel_values });
+    const t = out.output || Object.values(out)[0];
+    const mask = await RawImage.fromTensor(t[0].mul(255).to("uint8")).resize(image.width, image.height);
+    const bmp = await createImageBitmap(blob);
+    const c = document.createElement("canvas"); c.width = image.width; c.height = image.height;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(bmp, 0, 0); if (bmp.close) bmp.close();
+    const id = x.getImageData(0, 0, c.width, c.height), d = id.data, m = mask.data;
+    for (let i = 0; i < m.length; i++) d[i * 4 + 3] = m[i];
+    x.putImageData(id, 0, 0);
+    return new Promise(r => c.toBlob(r, "image/png"));
   }
 
   // ---------- hazırlık ----------
@@ -282,11 +324,11 @@
     if (busy || !items.length) return;
     busy = true; token++;
     $("#start").disabled = true; $("#zip").disabled = true; $("#share").disabled = true;
-    try { await loadLib(); await warm(); } catch (e) { msg("Model yüklenemedi: internet bağlantısını kontrol et. " + e.message); busy = false; $("#start").disabled = false; return; }
+    try { if ($("#model").value === "rmbg") await loadRmbg(); else { await loadLib(); await warm(); } } catch (e) { msg("Model yüklenemedi: " + e.message + " (internet bağlantısını kontrol et veya \"Eski motor\" seç)"); busy = false; $("#start").disabled = false; return; }
     let done = 0;
     for (const it of items) {
       if (!it.cut) {
-        setSt(it, "işleniyor..."); msg((done + 1) + " / " + items.length + " işleniyor (" + (cpuOnly ? "CPU" : "GPU") + ")...");
+        setSt(it, "işleniyor..."); msg((done + 1) + " / " + items.length + " işleniyor (" + ($("#model").value === "rmbg" ? rmDev : (cpuOnly ? "CPU" : "GPU")) + ")...");
         try {
           const src = await prepare(it.file);
           const out = await cutout(src);
