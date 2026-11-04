@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.6">
+<meta name="version" content="3.7">
 <meta name="theme-color" content="#0f172a">
 <title>e-Okul Fotoğraf Düzenleme Otomasyonu</title>
 <style>
@@ -122,7 +122,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v3.6</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v3.7</footer>
 
 <script>
 (() => {
@@ -401,6 +401,9 @@
     if (q.tilt > 0.17) w.push("baş eğik");
     if (q.jaw > 0.35) w.push("ağız açık");
     if (q.small < 0.07) w.push("yüz küçük/uzak");
+    if (it.gap >= 0.03) w.push("kenarda boşluk %" + Math.round(it.gap * 100));
+    if (Math.abs(it.headOff || 0) > 0.06) w.push("baş ortada değil");
+    if (it.zoomUp > 1.1) w.push("çok yakınlaştırıldı");
     if (q.blur < 10 || (blurMed && q.blur < 0.4 * blurMed)) w.push("bulanık");
     return w;
   }
@@ -524,7 +527,7 @@
       for (const s of shiftMax > 0 && !byHead ? [0, -shiftMax / 2, shiftMax / 2, -shiftMax, shiftMax] : [0]) {   // baş ortalıysa sağ-sol eşitliği bozulmasın: boşluk yalnız yakınlaştırmayla kapanır   // kaydırma, kadraj genişliğinin oranı (yüz ortada kalsın diye sınırlı)
         const tx = Math.min(Math.max(tx0 + s * fw, fr.loX), fr.hiX);
         const gap = edgeGap(it, { ...fr, tx }, W, H, eyeP), score = gap + pen;
-        if (!loc || score < loc.score - 0.004) loc = { ...fr, tx, gap, score, eyePct: eyeP };
+        if (!loc || score < loc.score - 0.004) loc = { ...fr, tx, gap, score, eyePct: eyeP, z };
         if (loc.score <= 0.01) break;
       }
       if (!best || loc.score < best.score - 0.01) best = loc;        // her yakınlaşma en az %1 kazandırmalı
@@ -543,6 +546,8 @@
       const { ex, ey } = it.face;
       const fr = bestFrame(it, W, H, zoom, eyePct, headT, $("#shift").value / 100, $("#hcenter").value === "head");
       const { k: kOut, ang, tx, ty } = fr; it.gap = fr.gap;
+      it.zoomUp = fr.z / zoom;                                                  // ayarlı yakınlığa göre ek yakınlaştırma
+      it.headOff = (headCenter(it) - (ex + tx)) / (W / kOut);                  // baş ortası kadraj ortasından kaç oran kaçık
       const IW = Math.max(W, Math.round(W / kOut)), IH = Math.round(IW * H / W);
       const q = IW * kOut / W;                           // ara tuval pikseli / kaynak pikseli
       c.width = IW; c.height = IH;
@@ -748,7 +753,7 @@
     it.blob = blob; it.url = URL.createObjectURL(blob);
     const ph = it.el.querySelector(".ph"); ph.innerHTML = ""; const im = new Image(); im.src = it.url; ph.appendChild(im);
     const wr = warnsOf(it); it.rGain = it.gain || 1; it.rWarn = wr.join();
-    setSt(it, "tamam · " + Math.round(blob.size / 1024) + " KB" + (it.gap > 0.02 ? " · köşe boşluğu %" + Math.round(it.gap * 100) : "") + (wr.length ? " · ⚠ " + wr.join(", ") : ""), "ok" + (wr.length ? " warn" : ""));
+    setSt(it, "tamam · " + Math.round(blob.size / 1024) + " KB" + (wr.length ? " · ⚠ " + wr.join(", ") : ""), "ok" + (wr.length ? " warn" : ""));
     updateWarnBox();
   }
 
