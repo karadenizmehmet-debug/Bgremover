@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.5">
+<meta name="version" content="3.6">
 <meta name="theme-color" content="#0f172a">
 <title>e-Okul Fotoğraf Düzenleme Otomasyonu</title>
 <style>
@@ -33,7 +33,12 @@
   .it .ph{aspect-ratio:133/171;background:#111827;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden}
   .it img{width:100%;height:100%;object-fit:contain}
   .it .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
-  .it.ok .st{color:var(--ok)}.it.er .st{color:var(--err)}
+  .it.ok .st{color:var(--ok)}.it.er .st{color:var(--err)}.it.ok.warn .st{color:#fbbf24}
+  .chk{display:flex;gap:8px;align-items:flex-start;margin:10px 0 0;font-size:.9rem;color:var(--txt)}
+  .chk input{margin-top:3px;width:18px;height:18px;flex:none}
+  .chk small{display:block;color:var(--mut);font-size:.75rem}
+  #warnBox{border-color:#a16207;background:#2a2008;font-size:.82rem;line-height:1.5}
+  #warnBox b{color:#fbbf24}
   footer{text-align:center;color:var(--mut);font-size:.72rem;margin:18px 0}
 </style>
 </head>
@@ -93,6 +98,10 @@
     <option value="399x513">399 × 513 px (e-Okul kabul etmez)</option>
     <option value="133x171" selected>133 × 171 px (e-Okul: 35×45 mm, 20-150 KB)</option>
   </select>
+
+  <label class="chk"><input type="checkbox" id="fx_defringe" checked><span>Kenar rengi temizleme<small>Saç ve omuz kenarındaki eski arka plan rengini siler. Yeni işlenen fotoğraflara uygulanır.</small></span></label>
+  <label class="chk"><input type="checkbox" id="fx_expo" checked><span>Işık eşitleme (hafif)<small>Çok koyu ya da çok parlak çekilenleri grubun ortalamasına yaklaştırır. Cilt tonunu zorla eşitlemez, en fazla %10-12 düzeltir.</small></span></label>
+  <label class="chk"><input type="checkbox" id="fx_sharp" checked><span>Hafif keskinleştirme<small>Küçültmeden sonra yüz detayını geri getirir.</small></span></label>
 </section>
 
 <section>
@@ -100,6 +109,8 @@
   <div id="bar"><i></i></div>
   <div id="msg"></div>
 </section>
+
+<section id="warnBox" hidden></section>
 
 <section>
   <div id="grid"></div>
@@ -111,7 +122,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v3.5</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v3.6</footer>
 
 <script>
 (() => {
@@ -148,6 +159,12 @@
     KEYS.forEach(k => { if (sv[k] != null) { $("#" + k).value = sv[k]; $("#" + k).dispatchEvent(new Event(EV[k] || "input")); } });
   } catch (e) {}
   KEYS.forEach(k => $("#" + k).addEventListener(EV[k] || "input", saveSet));
+  const CK = ["fx_defringe", "fx_expo", "fx_sharp"];
+  try { const sv = JSON.parse(localStorage.getItem("bgr-ayar3") || "{}"); CK.forEach(k => { if (sv[k] != null) $("#" + k).checked = !!sv[k]; }); } catch (e) {}
+  CK.forEach(k => $("#" + k).addEventListener("change", () => {
+    try { const o = {}; CK.forEach(j => o[j] = $("#" + j).checked); localStorage.setItem("bgr-ayar3", JSON.stringify(o)); } catch (e) {}
+    if (k === "fx_defringe") msg("Kenar rengi temizleme yalnız bundan sonra işlenen fotoğraflara uygulanır."); else schedule();
+  }));
 
   // ---------- dosya seçimi ----------
   $("#file").onchange = e => {
@@ -295,7 +312,7 @@
       msg("Yüz modeli hazırlanıyor...");
       const { FaceLandmarker, FilesetResolver } = await import(MP + "/vision_bundle.mjs");
       const fs = await FilesetResolver.forVisionTasks(MP + "/wasm");
-      const opts = d => ({ baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", delegate: d }, runningMode: "IMAGE", numFaces: 1 });
+      const opts = d => ({ baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", delegate: d }, runningMode: "IMAGE", numFaces: 1, outputFaceBlendshapes: true });
       // CPU: GPU'yu arka plan modeline bırak (ikisi aynı anda GPU kullanınca takılabiliyor)
       landmarker = await withTimeout(FaceLandmarker.createFromOptions(fs, opts("CPU")), 60000);
       faceErr = "";
@@ -322,11 +339,108 @@
       const eR = mid(P(33), P(133)), eL = mid(P(362), P(263));   // göz köşelerinin ortası
       const e = mid(eR, eL), chin = P(152);
       let ang = Math.atan2(eL[1] - eR[1], eL[0] - eR[0]);
+      const tilt = Math.abs(ang);
       if (Math.abs(ang) > 0.2) ang = 0;                          // aşırı eğimde döndürme yapma
       const ec = Math.hypot(chin[0] - e[0], chin[1] - e[1]);
       if (!(ec > 10)) return null;
-      return { ex: e[0], ey: e[1], ec, ang };
+      // yeniden çekim uyarıları için ölçümler
+      const nose = P(1), cl = P(234), cr = P(454), dl = nose[0] - cl[0], dr = cr[0] - nose[0];
+      const cats = (r.faceBlendshapes && r.faceBlendshapes[0] && r.faceBlendshapes[0].categories) || [];
+      const bs = n => { const c = cats.find(b => b.categoryName === n); return c ? c.score : 0; };
+      const q = { yaw: dl + dr > 1 ? (dl - dr) / (dl + dr) : 0, tilt, blink: (bs("eyeBlinkLeft") + bs("eyeBlinkRight")) / 2, jaw: bs("jawOpen"), small: ec / h,
+        blur: sharpness(cv, e[0] * (cv.width / w), (e[1] + chin[1]) / 2 * (cv.height / h), ec * 0.9 * (cv.width / w)) };
+      return { ex: e[0], ey: e[1], ec, ang, q };
     } finally { if (bmp.close) bmp.close(); }
+  }
+
+  // Yüz bölgesinin netliği: 128 px genişliğe indirip Laplace varyansı (büyük = net). Çözünürlükten bağımsız kıyaslanır.
+  function sharpness(cv, cx, cy, half) {
+    const x0 = Math.max(0, Math.round(cx - half)), y0 = Math.max(0, Math.round(cy - half));
+    const sw0 = Math.min(cv.width - x0, Math.round(half * 2)), sh0 = Math.min(cv.height - y0, Math.round(half * 2));
+    if (sw0 < 16 || sh0 < 16) return 999;
+    const w = 128, h = Math.max(16, Math.round(128 * sh0 / sw0));
+    const c2 = document.createElement("canvas"); c2.width = w; c2.height = h;
+    const x2 = c2.getContext("2d", { willReadFrequently: true }); x2.drawImage(cv, x0, y0, sw0, sh0, 0, 0, w, h);
+    const d = x2.getImageData(0, 0, w, h).data, g = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) g[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2];
+    let s = 0, s2 = 0, n = 0;
+    for (let y = 1; y < h - 1; y++) for (let i = 1; i < w - 1; i++) {
+      const v = 4 * g[y * w + i] - g[y * w + i - 1] - g[y * w + i + 1] - g[(y - 1) * w + i] - g[(y + 1) * w + i];
+      s += v; s2 += v * v; n++;
+    }
+    return s2 / n - (s / n) * (s / n);
+  }
+  // Işık eşitleme için yüz bölgesinin ortalama parlaklığı (düşük çözünürlüklü kopyadan)
+  function faceLum(it) {
+    const m = it.info.low, { ex, ey, ec } = it.face;
+    const xa = Math.max(0, Math.floor((ex - 0.5 * ec) / m.kx)), xb = Math.min(m.sw - 1, Math.floor((ex + 0.5 * ec) / m.kx));
+    const ya = Math.max(0, Math.floor((ey - 0.3 * ec) / m.ky)), yb = Math.min(m.sh - 1, Math.floor((ey + 0.8 * ec) / m.ky));
+    let s = 0, n = 0;
+    for (let y = ya; y <= yb; y++) for (let i = xa; i <= xb; i++) { const p = (y * m.sw + i) * 4; if (m.d[p + 3] > 200) { s += 0.299 * m.d[p] + 0.587 * m.d[p + 1] + 0.114 * m.d[p + 2]; n++; } }
+    return n > 20 ? s / n : 0;
+  }
+  let blurMed = 0;
+  // Grubun ortancasına göre her fotoğrafın parlaklık düzeltmesi (yarım güçte, en fazla -%10 / +%12) ve netlik ortancası
+  function updateGains() {
+    const L = items.filter(i => i.lum > 0).map(i => i.lum).sort((a, b) => a - b);
+    const B = items.filter(i => i.face && i.face.q).map(i => i.face.q.blur).sort((a, b) => a - b);
+    blurMed = B.length >= 3 ? B[B.length >> 1] : 0;
+    for (const it of items) {
+      it.gain = 1;
+      if (L.length < 3 || !(it.lum > 0)) continue;
+      const g = Math.min(1.12, Math.max(0.9, 1 + 0.6 * (L[L.length >> 1] / it.lum - 1)));
+      if (Math.abs(g - 1) >= 0.03) it.gain = g;
+    }
+  }
+  function warnsOf(it) {
+    const w = [];
+    if (!it.face) { if (landmarker) w.push("yüz bulunamadı"); return w; }
+    const q = it.face.q; if (!q) return w;
+    if (q.blink > 0.5) w.push("gözler kapalı");
+    if (Math.abs(q.yaw) > 0.2) w.push("baş yana dönük");
+    if (q.tilt > 0.17) w.push("baş eğik");
+    if (q.jaw > 0.35) w.push("ağız açık");
+    if (q.small < 0.07) w.push("yüz küçük/uzak");
+    if (q.blur < 10 || (blurMed && q.blur < 0.4 * blurMed)) w.push("bulanık");
+    return w;
+  }
+  function updateWarnBox() {
+    const box = $("#warnBox"), bad = items.filter(i => i.blob && warnsOf(i).length);
+    box.hidden = !bad.length; box.textContent = "";
+    if (!bad.length) return;
+    const h = document.createElement("b"); h.textContent = "⚠ Yeniden çekilmesi önerilenler (" + bad.length + "):"; box.appendChild(h);
+    bad.forEach(i => { const d = document.createElement("div"); d.textContent = i.name + " — " + warnsOf(i).join(", "); box.appendChild(d); });
+    const n = document.createElement("div"); n.style.color = "var(--mut)"; n.textContent = "Bunlar otomatik tahmindir; fotoğrafa bakıp karar ver."; box.appendChild(n);
+  }
+
+  // Kenar rengi temizleme: yarı saydam kenar pikselinin rengini, yakındaki tam opak (içerideki) piksellerin ortalamasına yaklaştırır.
+  async function defringeBitmap(bm) {
+    const w = bm.width, h = bm.height, c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bm, 0, 0);
+    const id = x.getImageData(0, 0, w, h), d = id.data, src = new Uint8ClampedArray(d), R = 3;
+    for (let y = 0; y < h; y++) for (let i = 0; i < w; i++) {
+      const p = (y * w + i) * 4, a = src[p + 3];
+      if (a === 0 || a >= 250) continue;
+      let sr = 0, sg = 0, sb = 0, n = 0;
+      for (let dy = -R; dy <= R; dy++) { const yy = y + dy; if (yy < 0 || yy >= h) continue;
+        for (let dx = -R; dx <= R; dx++) { const xx = i + dx; if (xx < 0 || xx >= w) continue; const q = (yy * w + xx) * 4; if (src[q + 3] >= 250) { sr += src[q]; sg += src[q + 1]; sb += src[q + 2]; n++; } } }
+      if (!n) continue;
+      const t = Math.min(1, (1 - a / 255) * 1.6 + 0.15);
+      d[p] = src[p] * (1 - t) + sr / n * t; d[p + 1] = src[p + 1] * (1 - t) + sg / n * t; d[p + 2] = src[p + 2] * (1 - t) + sb / n * t;
+    }
+    x.putImageData(id, 0, 0);
+    const out = await createImageBitmap(c);
+    if (bm.close) bm.close();
+    return out;
+  }
+  // Parlaklık düzeltmesi yalnız kişiye uygulanır (arka plan rengi değişmesin): önce şeffaf tuvale çiz, çarp, sonra arka plana koy.
+  function paintCut(c, x, g, fn) {
+    if (g === 1) { fn(x); return; }
+    const f = document.createElement("canvas"); f.width = c.width; f.height = c.height;
+    const fx = f.getContext("2d", { willReadFrequently: true }); fx.imageSmoothingQuality = "high"; fn(fx);
+    const id = fx.getImageData(0, 0, f.width, f.height), d = id.data;
+    for (let i = 0; i < d.length; i += 4) if (d[i + 3]) { d[i] *= g; d[i + 1] *= g; d[i + 2] *= g; }
+    fx.putImageData(id, 0, 0); x.drawImage(f, 0, 0);
   }
 
   // Kadrajın fotoğrafın dışına taşıp kenarda boş (arka plan renkli) şerit bırakmasını önler:
@@ -423,6 +537,7 @@
   function render(it, W, H) {
     const zoom = $("#zoom").value / 100, eyePct = $("#top").value / 100, headT = $("#align").value === "head" ? $("#head").value / 100 : null;
     let c = document.createElement("canvas"), x;
+    const gain = $("#fx_expo").checked ? (it.gain || 1) : 1;
     if (it.face) {
       // Yüz noktalarına göre sabit kadraj: göz hizası ve göz-çene mesafesi her fotoğrafta aynı (kenara taşmadıkça)
       const { ex, ey } = it.face;
@@ -433,9 +548,11 @@
       c.width = IW; c.height = IH;
       x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
       x.fillStyle = bg; x.fillRect(0, 0, IW, IH);
-      x.translate(IW / 2, fr.eyePct * IH); x.rotate(-ang); x.scale(q, q); x.translate(-(ex + tx), -(ey + ty));
-      x.drawImage(it.cut, 0, 0);
-      x.setTransform(1, 0, 0, 1, 0, 0);
+      paintCut(c, x, gain, t => {
+        t.translate(IW / 2, fr.eyePct * IH); t.rotate(-ang); t.scale(q, q); t.translate(-(ex + tx), -(ey + ty));
+        t.drawImage(it.cut, 0, 0);
+        t.setTransform(1, 0, 0, 1, 0, 0);
+      });
     } else {
       // Yüz bulunamazsa eski yöntem: silüetin tepesinden kadraj
       const topPct = 0.09;
@@ -449,13 +566,15 @@
       x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
       x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
       const k = c.height / Hc;
-      x.drawImage(it.cut, -left * k, -top * k, it.cut.width * k, it.cut.height * k);
+      paintCut(c, x, gain, t => t.drawImage(it.cut, -left * k, -top * k, it.cut.width * k, it.cut.height * k));
     }
     // 2) Lanczos3 ile tek adımda küçült (keskin ama tırtıksız; masaüstü programlarının kullandığı yöntem)
     const src = x.getImageData(0, 0, c.width, c.height);
     const f = document.createElement("canvas"); f.width = W; f.height = H;
     const fx = f.getContext("2d");
-    fx.putImageData(lanczos(src, W, H), 0, 0);
+    const small = lanczos(src, W, H);
+    if ($("#fx_sharp").checked) sharpenData(small, 0.25);
+    fx.putImageData(small, 0, 0);
     return f;
   }
 
@@ -492,24 +611,78 @@
     return out;
   }
 
-  // hafif keskinleştirme (küçültmeden sonra detay geri gelir)
-  function sharpen(x, W, H, a) {
-    const img = x.getImageData(0, 0, W, H), s = img.data, o = new Uint8ClampedArray(s);
+  // hafif keskinleştirme (küçültmeden sonra detay geri gelir): komşu pikselleri çıkarır, ışık-karanlık geçişini vurgular
+  function sharpenData(img, a) {
+    const W = img.width, H = img.height, s = img.data, o = new Uint8ClampedArray(s);
     for (let y = 1; y < H - 1; y++) for (let i = 1; i < W - 1; i++) {
       const p = (y * W + i) * 4;
-      for (let ch = 0; ch < 3; ch++) {
-        const v = s[p + ch] * (1 + 4 * a) - a * (s[p - 4 + ch] + s[p + 4 + ch] + s[p - W * 4 + ch] + s[p + W * 4 + ch]);
-        o[p + ch] = v;
-      }
+      for (let ch = 0; ch < 3; ch++) o[p + ch] = s[p + ch] * (1 + 4 * a) - a * (s[p - 4 + ch] + s[p + 4 + ch] + s[p - W * 4 + ch] + s[p + W * 4 + ch]);
     }
-    img.data.set(o); x.putImageData(img, 0, 0);
+    img.data.set(o);
   }
 
   // ---------- JPEG: 20-150 KB aralığı ----------
+  // ---------- kendi JPEG kodlayıcımız: 4:4:4 (renk küçültme yok), kalite 1-100, e-Okul için DPI=96 ----------
+  const QL = [16,11,10,16,24,40,51,61,12,12,14,19,26,58,60,55,14,13,16,24,40,57,69,56,14,17,22,29,51,87,80,62,18,22,37,56,68,109,103,77,24,35,55,64,81,104,113,92,49,64,78,87,103,121,120,101,72,92,95,98,112,100,103,99];
+  const QC = [17,18,24,47,99,99,99,99,18,21,26,66,99,99,99,99,24,26,56,99,99,99,99,99,47,66,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99,99];
+  const ZZ = [0,1,8,16,9,2,3,10,17,24,32,25,18,11,4,5,12,19,26,33,40,48,41,34,27,20,13,6,7,14,21,28,35,42,49,56,57,50,43,36,29,22,15,23,30,37,44,51,58,59,52,45,38,31,39,46,53,60,61,54,47,55,62,63];
+  const H_DCL=[[0,1,5,1,1,1,1,1,1,0,0,0,0,0,0,0],[0,1,2,3,4,5,6,7,8,9,10,11]];
+  const H_ACL=[[0,2,1,3,3,2,4,3,5,5,4,4,0,0,1,125],[1,2,3,0,4,17,5,18,33,49,65,6,19,81,97,7,34,113,20,50,129,145,161,8,35,66,177,193,21,82,209,240,36,51,98,114,130,9,10,22,23,24,25,26,37,38,39,40,41,42,52,53,54,55,56,57,58,67,68,69,70,71,72,73,74,83,84,85,86,87,88,89,90,99,100,101,102,103,104,105,106,115,116,117,118,119,120,121,122,131,132,133,134,135,136,137,138,146,147,148,149,150,151,152,153,154,162,163,164,165,166,167,168,169,170,178,179,180,181,182,183,184,185,186,194,195,196,197,198,199,200,201,202,210,211,212,213,214,215,216,217,218,225,226,227,228,229,230,231,232,233,234,241,242,243,244,245,246,247,248,249,250]];
+  const H_DCC=[[0,3,1,1,1,1,1,1,1,1,1,0,0,0,0,0],[0,1,2,3,4,5,6,7,8,9,10,11]];
+  const H_ACC=[[0,2,1,2,4,4,3,4,7,5,4,4,0,1,2,119],[0,1,2,3,17,4,5,33,49,6,18,65,81,7,97,113,19,34,50,129,8,20,66,145,161,177,193,9,35,51,82,240,21,98,114,209,10,22,36,52,225,37,241,23,24,25,26,38,39,40,41,42,53,54,55,56,57,58,67,68,69,70,71,72,73,74,83,84,85,86,87,88,89,90,99,100,101,102,103,104,105,106,115,116,117,118,119,120,121,122,130,131,132,133,134,135,136,137,138,146,147,148,149,150,151,152,153,154,162,163,164,165,166,167,168,169,170,178,179,180,181,182,183,184,185,186,194,195,196,197,198,199,200,201,202,210,211,212,213,214,215,216,217,218,226,227,228,229,230,231,232,233,234,242,243,244,245,246,247,248,249,250]];
+  const huffCodes = ([bits, vals]) => { const code = new Array(256).fill(0), len = new Array(256).fill(0); let c = 0, k = 0; for (let l = 1; l <= 16; l++) { for (let i = 0; i < bits[l - 1]; i++) { code[vals[k]] = c; len[vals[k]] = l; c++; k++; } c <<= 1; } return { code, len }; };
+  const HC = { dl: huffCodes(H_DCL), al: huffCodes(H_ACL), dc: huffCodes(H_DCC), ac: huffCodes(H_ACC) };
+  const COS = (() => { const m = new Float32Array(64); for (let u = 0; u < 8; u++) for (let x = 0; x < 8; x++) m[u * 8 + x] = (u ? 1 : Math.SQRT1_2) * 0.5 * Math.cos((2 * x + 1) * u * Math.PI / 16); return m; })();
+  function jpegEncode(img, quality) {
+    const W = img.width, H = img.height, s = img.data, q = Math.min(100, Math.max(1, Math.round(quality)));
+    const sc = q < 50 ? 5000 / q : 200 - 2 * q;
+    const qt = T => T.map(v => Math.min(255, Math.max(1, Math.floor((v * sc + 50) / 100))));
+    const ql = qt(QL), qc = qt(QC);
+    const bw = Math.ceil(W / 8), bh = Math.ceil(H / 8), pw = bw * 8, ph = bh * 8;
+    const pl = [new Float32Array(pw * ph), new Float32Array(pw * ph), new Float32Array(pw * ph)];
+    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+      const p = (Math.min(y, H - 1) * W + Math.min(x, W - 1)) * 4, r = s[p], g = s[p + 1], b = s[p + 2], o = y * pw + x;
+      pl[0][o] = 0.299 * r + 0.587 * g + 0.114 * b - 128;
+      pl[1][o] = -0.168736 * r - 0.331264 * g + 0.5 * b;
+      pl[2][o] = 0.5 * r - 0.418688 * g - 0.081312 * b;
+    }
+    const out = []; let acc = 0, nb = 0;
+    const put = (code, len) => { acc = (acc << len) | code; nb += len; while (nb >= 8) { const v = (acc >> (nb - 8)) & 255; out.push(v); if (v === 255) out.push(0); nb -= 8; } acc &= (1 << nb) - 1; };
+    const bitsOf = v => { const a = Math.abs(v); let n = 0; while ((1 << n) <= a) n++; return n; };
+    const tmp = new Float32Array(64), blk = new Int32Array(64), prev = [0, 0, 0];
+    for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) for (let c = 0; c < 3; c++) {
+      const P = pl[c], T = c ? qc : ql, dcT = c ? HC.dc : HC.dl, acT = c ? HC.ac : HC.al;
+      for (let v = 0; v < 8; v++) for (let x = 0; x < 8; x++) { let sum = 0; for (let y = 0; y < 8; y++) sum += COS[v * 8 + y] * P[(by * 8 + y) * pw + bx * 8 + x]; tmp[v * 8 + x] = sum; }
+      for (let v = 0; v < 8; v++) for (let u = 0; u < 8; u++) { let sum = 0; for (let x = 0; x < 8; x++) sum += COS[u * 8 + x] * tmp[v * 8 + x]; blk[v * 8 + u] = Math.round(sum / T[v * 8 + u]); }
+      const dc = blk[0] - prev[c]; prev[c] = blk[0];
+      let n = bitsOf(dc); put(dcT.code[n], dcT.len[n]); if (n) put(dc < 0 ? dc + (1 << n) - 1 : dc, n);
+      let run = 0;
+      for (let i = 1; i < 64; i++) {
+        const v = blk[ZZ[i]];
+        if (!v) { run++; continue; }
+        while (run > 15) { put(acT.code[0xF0], acT.len[0xF0]); run -= 16; }
+        n = bitsOf(v); const sym = (run << 4) | n; put(acT.code[sym], acT.len[sym]); put(v < 0 ? v + (1 << n) - 1 : v, n); run = 0;
+      }
+      if (run) put(acT.code[0], acT.len[0]);
+    }
+    if (nb) put((1 << (8 - nb)) - 1, 8 - nb);
+    const hdr = [0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 0x4A, 0x46, 0x49, 0x46, 0, 1, 1, 1, 0, 96, 0, 96, 0, 0];
+    const dqt = (id, T) => { hdr.push(0xFF, 0xDB, 0, 67, id); for (let i = 0; i < 64; i++) hdr.push(T[ZZ[i]]); };
+    dqt(0, ql); dqt(1, qc);
+    hdr.push(0xFF, 0xC0, 0, 17, 8, H >> 8, H & 255, W >> 8, W & 255, 3, 1, 0x11, 0, 2, 0x11, 1, 3, 0x11, 1);
+    const dht = (cls, id, [bits, vals]) => { hdr.push(0xFF, 0xC4, 0, 19 + vals.length, (cls << 4) | id, ...bits, ...vals); };
+    dht(0, 0, H_DCL); dht(1, 0, H_ACL); dht(0, 1, H_DCC); dht(1, 1, H_ACC);
+    hdr.push(0xFF, 0xDA, 0, 12, 3, 1, 0x00, 2, 0x11, 3, 0x11, 0, 63, 0);
+    const res = new Uint8Array(hdr.length + out.length + 2);
+    res.set(hdr, 0); res.set(out, hdr.length); res[res.length - 2] = 0xFF; res[res.length - 1] = 0xD9;
+    return res;
+  }
+
   const toBlob = (c, q) => new Promise(r => c.toBlob(r, "image/jpeg", q));
   async function padJpeg(blob, minBytes) {
     const src = new Uint8Array(await blob.arrayBuffer());
     let need = minBytes - src.length; if (need <= 0) return blob;
+    const at = src[2] === 0xFF && src[3] === 0xE0 ? 4 + ((src[4] << 8) | src[5]) : 2;   // JFIF başlığından sonra
     const segs = [];
     while (need > 0) {
       const dl = Math.min(65533, Math.max(1, need - 4));
@@ -517,7 +690,7 @@
       seg[2] = (dl + 2) >> 8; seg[3] = (dl + 2) & 255; seg.fill(32, 4);
       segs.push(seg); need -= seg.length;
     }
-    return new Blob([src.slice(0, 2), ...segs, src.slice(2)], { type: "image/jpeg" });
+    return new Blob([src.slice(0, at), ...segs, src.slice(at)], { type: "image/jpeg" });
   }
   // e-Okul: 35x45 mm = 133x171 px (yaklaşık 96 dpi); JFIF yoğunluğunu buna ayarla
   async function setDpi(blob, dpi) {
@@ -528,26 +701,55 @@
     }
     return blob;
   }
+  // Kodlanan JPEG'i tarayıcı gerçekten açabiliyor mu ve görüntü aynı mı? (bozuk dosya e-Okul'a yüklenmesin)
+  async function jpegOk(blob, img) {
+    try {
+      const bmp = await createImageBitmap(blob);
+      if (bmp.width !== img.width || bmp.height !== img.height) return false;
+      const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+      const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bmp, 0, 0);
+      const d = x.getImageData(0, 0, c.width, c.height).data, s = img.data; let sum = 0, n = 0;
+      for (let i = 0; i < d.length; i += 16) { sum += Math.abs(d[i] - s[i]) + Math.abs(d[i + 1] - s[i + 1]) + Math.abs(d[i + 2] - s[i + 2]); n += 3; }
+      return sum / n < 8;
+    } catch (e) { return false; }
+  }
+  let customOk = true;
   async function encode(c) {
-    const MIN = 22 * 1024, MAX = 148 * 1024;
-    let q = 1.0, b = await toBlob(c, q);
-    if (b.size > MAX) {
-      let lo = 0.3, hi = q;
-      for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; const t = await toBlob(c, m); if (t.size > MAX) hi = m; else lo = m; }
-      b = await toBlob(c, lo);
+    const MIN = 22 * 1024, MAX = 148 * 1024, W = c.width, H = c.height;
+    let b = null;
+    // 1) kendi kodlayıcımız: 4:4:4, en yüksek kalite (100), 150 KB'ı aşarsa kalite düşürülür
+    if (customOk && W * H <= 210000) {
+      try {
+        const img = c.getContext("2d").getImageData(0, 0, W, H);
+        let best = null, lo = 30, hi = 100;
+        while (lo <= hi) { const m = (lo + hi) >> 1, t = jpegEncode(img, m); if (t.length <= MAX) { best = t; lo = m + 1; } else hi = m - 1; }
+        if (best) { const bl = new Blob([best], { type: "image/jpeg" }); if (await jpegOk(bl, img)) b = bl; else customOk = false; }
+      } catch (e) { console.warn("özel JPEG kodlayıcı", e); customOk = false; }
     }
-    b = await setDpi(b, 96);
+    // 2) yedek: tarayıcının kendi kodlayıcısı
+    if (!b) {
+      let q = 1.0; b = await toBlob(c, q);
+      if (b.size > MAX) {
+        let lo = 0.3, hi = q;
+        for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; const t = await toBlob(c, m); if (t.size > MAX) hi = m; else lo = m; }
+        b = await toBlob(c, lo);
+      }
+      b = await setDpi(b, 96);
+    }
     if (b.size < MIN) b = await padJpeg(b, MIN);
     return b;
   }
 
   async function renderItem(it) {
     const [W, H] = $("#size").value.split("x").map(Number);
+    updateGains();
     const blob = await encode(render(it, W, H));
     if (it.url) URL.revokeObjectURL(it.url);
     it.blob = blob; it.url = URL.createObjectURL(blob);
     const ph = it.el.querySelector(".ph"); ph.innerHTML = ""; const im = new Image(); im.src = it.url; ph.appendChild(im);
-    setSt(it, "tamam · " + Math.round(blob.size / 1024) + " KB" + (it.gap > 0.02 ? " · köşe boşluğu %" + Math.round(it.gap * 100) : ""), "ok");
+    const wr = warnsOf(it); it.rGain = it.gain || 1; it.rWarn = wr.join();
+    setSt(it, "tamam · " + Math.round(blob.size / 1024) + " KB" + (it.gap > 0.02 ? " · köşe boşluğu %" + Math.round(it.gap * 100) : "") + (wr.length ? " · ⚠ " + wr.join(", ") : ""), "ok" + (wr.length ? " warn" : ""));
+    updateWarnBox();
   }
 
   let tm = null;
@@ -574,14 +776,18 @@
           const src = await prepare(it.file);
           const out = await withTimeout(cutout(src), 90000);
           it.cut = await createImageBitmap(out);
+          if ($("#fx_defringe").checked) { try { it.cut = await defringeBitmap(it.cut); } catch (e) { console.warn("kenar temizleme", e); } }
           it.info = analyze(it.cut);
           try { it.face = await withTimeout(findFace(src), 15000); } catch (e) { console.warn("yüz", e); it.face = null; }
+          it.lum = it.face ? faceLum(it) : 0;
         } catch (e) { console.error(e); setSt(it, "hata", "er"); done++; prog(done / items.length); continue; }
       }
       await renderItem(it);
-      if (!it.face) it.el.querySelector(".st").textContent += landmarker ? " · yüz bulunamadı" : " · yüz modeli yok";
+      if (!it.face && !landmarker) it.el.querySelector(".st").textContent += " · yüz modeli yok";
       done++; prog(done / items.length); msg(done + " / " + items.length + " tamamlandı");
     }
+    updateGains();   // grup ortancası artık tam: parlaklık ve netlik kararı değişenleri yenile
+    for (const it of items) if (it.blob && (Math.abs((it.gain || 1) - (it.rGain || 1)) > 0.01 || warnsOf(it).join() !== it.rWarn)) await renderItem(it);
     busy = false; $("#start").disabled = false;
     const ok = items.filter(i => i.blob).length;
     msg(ok + " fotoğraf hazır. Renk ve kadraj ayarını değiştirirsen anında yenilenir." + (faceErr ? " (" + faceErr + ")" : ""));
@@ -626,6 +832,8 @@
   $("#zip").onclick = async () => {
     const used = new Set(), files = [];
     for (const it of items) if (it.blob) files.push({ name: uniqueName(it.name, used), data: new Uint8Array(await it.blob.arrayBuffer()) });
+    const bad = items.filter(i => i.blob && warnsOf(i).length);
+    if (bad.length) files.push({ name: "yeniden_cekilecekler.txt", data: new TextEncoder().encode("Yeniden çekilmesi önerilenler (otomatik tahmin):\r\n" + bad.map(i => i.name + " - " + warnsOf(i).join(", ")).join("\r\n") + "\r\n") });
     const z = makeZip(files), a = document.createElement("a");
     a.href = URL.createObjectURL(z);
     a.download = "vesikalik_" + new Date().toISOString().slice(0, 10) + ".zip";
