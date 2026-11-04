@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="2.1">
+<meta name="version" content="2.2">
 <meta name="theme-color" content="#0f172a">
 <title>Vesikalık Arka Plan</title>
 <style>
@@ -89,7 +89,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v2.1</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v2.2</footer>
 
 <script>
 (() => {
@@ -254,15 +254,25 @@
       const { FaceLandmarker, FilesetResolver } = await import(MP + "/vision_bundle.mjs");
       const fs = await FilesetResolver.forVisionTasks(MP + "/wasm");
       const opts = d => ({ baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", delegate: d }, runningMode: "IMAGE", numFaces: 1 });
-      try { landmarker = await FaceLandmarker.createFromOptions(fs, opts("GPU")); }
-      catch (e) { console.warn("yüz GPU", e); landmarker = await FaceLandmarker.createFromOptions(fs, opts("CPU")); }
-    } catch (e) { console.warn("Yüz modeli yüklenemedi, silüet yöntemi kullanılacak", e); landmarker = null; }
+      // CPU: GPU'yu arka plan modeline bırak (ikisi aynı anda GPU kullanınca takılabiliyor)
+      landmarker = await withTimeout(FaceLandmarker.createFromOptions(fs, opts("CPU")), 60000);
+      faceErr = "";
+    } catch (e) { console.warn("Yüz modeli yüklenemedi, silüet yöntemi kullanılacak", e); landmarker = null; faceErr = "yüz modeli yüklenemedi: " + (e && e.message || e); msg(faceErr); }
+  }
+  let faceErr = "";
+  function withTimeout(pr, ms) {
+    return Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error("zaman aşımı")), ms))]);
   }
   async function findFace(blob) {
     if (!landmarker) return null;
     const bmp = await createImageBitmap(blob);
     try {
-      const r = landmarker.detect(bmp);
+      // yüz aramayı küçük kopyada yap (hızlı), koordinatları büyük görüntüye çevir
+      const sc = Math.min(1, 720 / Math.max(bmp.width, bmp.height));
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(bmp.width * sc); cv.height = Math.round(bmp.height * sc);
+      cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
+      const r = landmarker.detect(cv);
       const L = r.faceLandmarks && r.faceLandmarks[0];
       if (!L) return null;
       const w = bmp.width, h = bmp.height, P = i => [L[i].x * w, L[i].y * h];
@@ -426,19 +436,19 @@
         setSt(it, "işleniyor..."); msg((done + 1) + " / " + items.length + " işleniyor (" + ($("#model").value === "rmbg" ? rmDev : (cpuOnly ? "CPU" : "GPU")) + ")...");
         try {
           const src = await prepare(it.file);
-          const out = await cutout(src);
+          const out = await withTimeout(cutout(src), 90000);
           it.cut = await createImageBitmap(out);
           it.info = analyze(it.cut);
-          try { it.face = await findFace(src); } catch (e) { console.warn("yüz", e); it.face = null; }
+          try { it.face = await withTimeout(findFace(src), 15000); } catch (e) { console.warn("yüz", e); it.face = null; }
         } catch (e) { console.error(e); setSt(it, "hata", "er"); done++; prog(done / items.length); continue; }
       }
       await renderItem(it);
-      if (!it.face) it.el.querySelector(".st").textContent += " · yüz yok";
+      if (!it.face) it.el.querySelector(".st").textContent += landmarker ? " · yüz bulunamadı" : " · yüz modeli yok";
       done++; prog(done / items.length); msg(done + " / " + items.length + " tamamlandı");
     }
     busy = false; $("#start").disabled = false;
     const ok = items.filter(i => i.blob).length;
-    msg(ok + " fotoğraf hazır. Renk ve kadraj ayarını değiştirirsen anında yenilenir.");
+    msg(ok + " fotoğraf hazır. Renk ve kadraj ayarını değiştirirsen anında yenilenir." + (faceErr ? " (" + faceErr + ")" : ""));
     $("#zip").disabled = !ok; $("#share").disabled = !ok;
   };
 
