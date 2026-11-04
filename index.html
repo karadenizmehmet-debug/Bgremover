@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="3.1">
+<meta name="version" content="3.2">
 <meta name="theme-color" content="#0f172a">
 <title>Bgremover</title>
 <style>
@@ -57,6 +57,12 @@
   <label class="l">Yüzün ortadan en fazla kayması: <b id="sv">4</b>%</label>
   <input type="range" id="shift" min="0" max="16" step="1" value="4">
 
+  <label class="l">Yatay ortalama</label>
+  <select id="hcenter">
+    <option value="head" selected>Başa göre (saç / başörtüsü dahil)</option>
+    <option value="face">Yüze (gözlere) göre</option>
+  </select>
+
   <label class="l">Dikey hizalama</label>
   <select id="align">
     <option value="head" selected>Baş üstü boşluğu hepsinde aynı (önerilen)</option>
@@ -104,7 +110,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v3.1</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v3.2</footer>
 
 <script>
 (() => {
@@ -128,6 +134,7 @@
   $("#zoom").oninput = e => { $("#zv").textContent = e.target.value; schedule(); };
   $("#top").oninput = e => { $("#tv").textContent = e.target.value; schedule(); };
   $("#shift").oninput = e => { $("#sv").textContent = e.target.value; schedule(); };
+  $("#hcenter").onchange = schedule;
   $("#head").oninput = e => { $("#hv").textContent = e.target.value; schedule(); };
   $("#align").onchange = e => { const h = e.target.value === "head"; $("#headBox").hidden = !h; $("#eyeBox").hidden = h; schedule(); };
   $("#size").onchange = schedule;
@@ -360,9 +367,23 @@
     return worst;
   }
 
+  // Başın (saç / başörtüsü dahil) yatay orta noktası: baş üstünden gözlerin biraz altına kadar satırların sol-sağ uçlarının ortası
+  function headCenter(it) {
+    if (it.headCx != null) return it.headCx;
+    const m = it.info.low, { ex, ey, ec } = it.face;
+    const y0 = Math.floor(it.info.top / m.ky) + 2, y1 = Math.min(m.sh - 1, Math.floor((ey + 0.8 * ec) / m.ky)), mids = [];
+    for (let y = y0; y <= y1; y++) {
+      let a = -1, b = -1;
+      for (let i = 0; i < m.sw; i++) if (m.d[(y * m.sw + i) * 4 + 3] > 48) { if (a < 0) a = i; b = i; }
+      if (a >= 0 && b - a > 6) mids.push((a + b + 1) / 2 * m.kx);
+    }
+    mids.sort((p, q) => p - q);
+    return (it.headCx = mids.length >= 5 ? mids[mids.length >> 1] : ex);
+  }
+
   // Alt köşelerde boşluk varsa kadrajı en fazla shiftMax kadar kaydırır, yetmezse en fazla %24 yakınlaştırır (yüz ortada kalsın).
   // headT verilmişse (baş üstü boşluğu oranı) her fotoğrafta başın tepesi kadrajın üstünden aynı uzaklığa konur.
-  function bestFrame(it, W, H, zoom, eyePct, headT, shiftMax) {
+  function bestFrame(it, W, H, zoom, eyePct, headT, shiftMax, byHead) {
     const w = it.cut.width, h = it.cut.height, { ey, ec } = it.face;
     let best = null;
     for (let i = 0; i <= 12; i++) {
@@ -370,9 +391,11 @@
       const eyeP = headT == null ? eyePct : Math.min(0.6, Math.max(0.2, headT + (ey - it.info.top) * EYE_CHIN * z / ec));   // göz hizası fotoğrafa göre değişir
       const fr = fitFrame(it.face, w, h, W, H, z, eyeP, headT != null), fw = W / fr.k, fh = H / fr.k;
       const pen = headT == null ? 0 : Math.max(0, -fr.ty / fh - 0.03);   // alt sınır yüzünden kadraj çok yukarı kayıp baş üstü boşluğunu bozmasın
+      const base = byHead ? Math.min(Math.max(headCenter(it) - it.face.ex, -0.08 * fw), 0.08 * fw) : 0;   // yüz ortadan en fazla %8 kayar
+      const tx0 = Math.min(Math.max(fr.tx + base, fr.loX), fr.hiX);
       let loc = null;
       for (const s of shiftMax > 0 ? [0, -shiftMax / 2, shiftMax / 2, -shiftMax, shiftMax] : [0]) {   // kaydırma, kadraj genişliğinin oranı (yüz ortada kalsın diye sınırlı)
-        const tx = Math.min(Math.max(fr.tx + s * fw, fr.loX), fr.hiX);
+        const tx = Math.min(Math.max(tx0 + s * fw, fr.loX), fr.hiX);
         const gap = edgeGap(it, { ...fr, tx }, W, H, eyeP), score = gap + pen;
         if (!loc || score < loc.score - 0.004) loc = { ...fr, tx, gap, score, eyePct: eyeP };
         if (loc.score <= 0.01) break;
@@ -390,7 +413,7 @@
     if (it.face) {
       // Yüz noktalarına göre sabit kadraj: göz hizası ve göz-çene mesafesi her fotoğrafta aynı (kenara taşmadıkça)
       const { ex, ey } = it.face;
-      const fr = bestFrame(it, W, H, zoom, eyePct, headT, $("#shift").value / 100);
+      const fr = bestFrame(it, W, H, zoom, eyePct, headT, $("#shift").value / 100, $("#hcenter").value === "head");
       const { k: kOut, ang, tx, ty } = fr; it.gap = fr.gap;
       const IW = Math.max(W, Math.round(W / kOut)), IH = Math.round(IW * H / W);
       const q = IW * kOut / W;                           // ara tuval pikseli / kaynak pikseli
