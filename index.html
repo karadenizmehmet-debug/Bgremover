@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="1.7">
+<meta name="version" content="1.8">
 <meta name="theme-color" content="#0f172a">
 <title>Vesikalık Arka Plan</title>
 <style>
@@ -66,10 +66,10 @@
 
   <label class="l">Çıktı boyutu</label>
   <select id="size">
-    <option value="665x855" selected>665 × 855 px (en keskin, ~140-148 KB)</option>
-    <option value="532x684">532 × 684 px (~100-148 KB)</option>
-    <option value="399x513">399 × 513 px</option>
-    <option value="133x171">133 × 171 px (küçük, bulanık görünür; 20 KB'a doldurulur)</option>
+    <option value="665x855">665 × 855 px (~140-148 KB, e-Okul kabul etmez)</option>
+    <option value="532x684">532 × 684 px (~100-148 KB, e-Okul kabul etmez)</option>
+    <option value="399x513">399 × 513 px (e-Okul kabul etmez)</option>
+    <option value="133x171" selected>133 × 171 px (e-Okul: 35×45 mm, 20-150 KB)</option>
   </select>
 </section>
 
@@ -89,7 +89,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v1.7</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v1.8</footer>
 
 <script>
 (() => {
@@ -288,6 +288,15 @@
     }
     return new Blob([src.slice(0, 2), ...segs, src.slice(2)], { type: "image/jpeg" });
   }
+  // e-Okul: 35x45 mm = 133x171 px (yaklaşık 96 dpi); JFIF yoğunluğunu buna ayarla
+  async function setDpi(blob, dpi) {
+    const b = new Uint8Array(await blob.arrayBuffer());
+    if (b[2] === 0xFF && b[3] === 0xE0 && b[6] === 0x4A && b[7] === 0x46) {
+      b[13] = 1; b[14] = dpi >> 8; b[15] = dpi & 255; b[16] = dpi >> 8; b[17] = dpi & 255;
+      return new Blob([b], { type: "image/jpeg" });
+    }
+    return blob;
+  }
   async function encode(c) {
     const MIN = 22 * 1024, MAX = 148 * 1024;
     let q = 1.0, b = await toBlob(c, q);
@@ -296,6 +305,7 @@
       for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; const t = await toBlob(c, m); if (t.size > MAX) hi = m; else lo = m; }
       b = await toBlob(c, lo);
     }
+    b = await setDpi(b, 96);
     if (b.size < MIN) b = await padJpeg(b, MIN);
     return b;
   }
