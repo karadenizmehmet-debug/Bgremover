@@ -178,14 +178,41 @@
   // ---------- kadraj + arka plan ----------
   function render(it, W, H) {
     const zoom = $("#zoom").value / 100, topPct = $("#top").value / 100;
-    const c = document.createElement("canvas"); c.width = W; c.height = H;
-    const x = c.getContext("2d"); x.imageSmoothingQuality = "high";
-    x.fillStyle = bg; x.fillRect(0, 0, W, H);
     const { y0, P, cx } = it.info;
-    const Hc = P * 0.85 / zoom, s = H / Hc;
-    const top = y0 - Hc * topPct, left = cx - (Hc * W / H) / 2;
-    x.drawImage(it.cut, -left * s, -top * s, it.cut.width * s, it.cut.height * s);
-    return c;
+    const Hc = P * 0.85 / zoom, Wc = Hc * W / H;
+    const top = y0 - Hc * topPct, left = cx - Wc / 2;
+    // 1) kadrajı orijinal çözünürlükte çiz
+    let c = document.createElement("canvas");
+    c.width = Math.max(W, Math.round(Wc)); c.height = Math.max(H, Math.round(Hc));
+    let x = c.getContext("2d"); x.imageSmoothingQuality = "high";
+    x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
+    const k = c.height / Hc;
+    x.drawImage(it.cut, -left * k, -top * k, it.cut.width * k, it.cut.height * k);
+    // 2) yarıya yarıya küçült (tek adımda küçültmek bulanıklık ve tırtık yapar)
+    while (c.height / 2 >= H) {
+      const n = document.createElement("canvas");
+      n.width = Math.max(W, Math.round(c.width / 2)); n.height = Math.round(c.height / 2);
+      const nx = n.getContext("2d"); nx.imageSmoothingQuality = "high";
+      nx.drawImage(c, 0, 0, n.width, n.height); c = n;
+    }
+    const f = document.createElement("canvas"); f.width = W; f.height = H;
+    const fx = f.getContext("2d"); fx.imageSmoothingQuality = "high";
+    fx.drawImage(c, 0, 0, W, H);
+    sharpen(fx, W, H, 0.3);
+    return f;
+  }
+
+  // hafif keskinleştirme (küçültmeden sonra detay geri gelir)
+  function sharpen(x, W, H, a) {
+    const img = x.getImageData(0, 0, W, H), s = img.data, o = new Uint8ClampedArray(s);
+    for (let y = 1; y < H - 1; y++) for (let i = 1; i < W - 1; i++) {
+      const p = (y * W + i) * 4;
+      for (let ch = 0; ch < 3; ch++) {
+        const v = s[p + ch] * (1 + 4 * a) - a * (s[p - 4 + ch] + s[p + 4 + ch] + s[p - W * 4 + ch] + s[p + W * 4 + ch]);
+        o[p + ch] = v;
+      }
+    }
+    img.data.set(o); x.putImageData(img, 0, 0);
   }
 
   // ---------- JPEG: 20-150 KB aralığı ----------
@@ -204,7 +231,7 @@
   }
   async function encode(c) {
     const MIN = 22 * 1024, MAX = 148 * 1024;
-    let q = 0.95, b = await toBlob(c, q);
+    let q = 0.98, b = await toBlob(c, q);
     if (b.size > MAX) {
       let lo = 0.3, hi = q;
       for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; const t = await toBlob(c, m); if (t.size > MAX) hi = m; else lo = m; }
