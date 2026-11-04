@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.7">
+<meta name="version" content="3.8">
 <meta name="theme-color" content="#0f172a">
 <title>e-Okul Fotoğraf Düzenleme Otomasyonu</title>
 <style>
@@ -40,6 +40,17 @@
   #warnBox{border-color:#a16207;background:#2a2008;font-size:.82rem;line-height:1.5}
   #warnBox b{color:#fbbf24}
   footer{text-align:center;color:var(--mut);font-size:.72rem;margin:18px 0}
+  .it.ok{cursor:pointer}
+  #ed{position:fixed;inset:0;background:rgba(2,6,23,.96);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px;overflow:auto}
+  #ed[hidden]{display:none}
+  .edbox{width:100%;max-width:420px}
+  .edtitle{font-size:.85rem;color:var(--mut);text-align:center;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .edview{position:relative;display:table;margin:0 auto}
+  #edc{display:block;max-width:100%;max-height:56vh;touch-action:none;background:#fff;border-radius:6px;cursor:grab}
+  .edview::after{content:"";position:absolute;left:50%;top:0;bottom:0;border-left:1px dashed rgba(56,189,248,.55);pointer-events:none}
+  .edhint{font-size:.75rem;color:var(--mut);text-align:center;margin:8px 0 2px}
+  .edbox .row .btn{flex:1;padding:12px}
+  .edbox .row{margin-top:8px}
 </style>
 </head>
 <body>
@@ -122,7 +133,23 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v3.7</footer>
+<div id="ed" hidden>
+  <div class="edbox">
+    <div class="edtitle" id="edname"></div>
+    <div class="edview"><canvas id="edc" width="399" height="513"></canvas></div>
+    <div class="edhint">Sürükle: kaydır · İki parmak: yakınlaştır / uzaklaştır</div>
+    <input type="range" id="edz" min="50" max="250" step="1" value="100">
+    <div class="row">
+      <button class="btn sec" id="edprev">‹</button>
+      <button class="btn sec" id="edreset">Sıfırla</button>
+      <button class="btn sec" id="edcancel">İptal</button>
+      <button class="btn sec" id="ednext">›</button>
+    </div>
+    <div class="row"><button class="btn" id="edsave">Kaydet</button></div>
+  </div>
+</div>
+
+<footer>Mehmet Karadeniz, 2026-2027 · v3.8</footer>
 
 <script>
 (() => {
@@ -171,12 +198,12 @@
     let files = [...e.target.files];
     if (files.length > 40) { files = files.slice(0, 40); msg("İlk 40 fotoğraf alındı."); }
     items.forEach(it => it.url && URL.revokeObjectURL(it.url));
-    items = files.map(f => ({ file: f, name: f.name.replace(/\.[^.]+$/, "") + ".jpg", cut: null, info: null, blob: null, url: null }));
+    items = files.map(f => ({ file: f, name: f.name.replace(/\.[^.]+$/, "") + ".jpg", cut: null, info: null, blob: null, url: null, man: null }));
     const grid = $("#grid"); grid.innerHTML = "";
     items.forEach((it, i) => {
       const d = document.createElement("div"); d.className = "it";
       d.innerHTML = '<div class="ph">⏳</div><div class="nm"></div><div class="st">bekliyor</div>';
-      d.querySelector(".nm").textContent = it.name; it.el = d; grid.appendChild(d);
+      d.querySelector(".nm").textContent = it.name; it.el = d; d.onclick = () => openEditor(it); grid.appendChild(d);
     });
     $("#count").textContent = items.length + " fotoğraf seçildi";
     $("#start").disabled = !items.length; $("#zip").disabled = true; $("#share").disabled = true;
@@ -401,9 +428,9 @@
     if (q.tilt > 0.17) w.push("baş eğik");
     if (q.jaw > 0.35) w.push("ağız açık");
     if (q.small < 0.07) w.push("yüz küçük/uzak");
-    if (it.gap >= 0.03) w.push("kenarda boşluk %" + Math.round(it.gap * 100));
-    if (Math.abs(it.headOff || 0) > 0.06) w.push("baş ortada değil");
-    if (it.zoomUp > 1.1) w.push("çok yakınlaştırıldı");
+    if (!it.man && it.gap >= 0.03) w.push("kenarda boşluk %" + Math.round(it.gap * 100));
+    if (!it.man && Math.abs(it.headOff || 0) > 0.06) w.push("baş ortada değil");
+    if (!it.man && it.zoomUp > 1.1) w.push("çok yakınlaştırıldı");
     if (q.blur < 10 || (blurMed && q.blur < 0.4 * blurMed)) w.push("bulanık");
     return w;
   }
@@ -537,17 +564,38 @@
   }
 
   // ---------- kadraj + arka plan ----------
-  function render(it, W, H) {
+  // Otomatik kadraj hesabı pahalı: aynı ayarlarda tekrar hesaplamamak için fotoğraf başına önbelleğe alınır
+  function autoFrame(it, W, H, zoom, eyePct, headT) {
+    const sm = $("#shift").value / 100, bh = $("#hcenter").value === "head";
+    const key = [W, H, zoom, eyePct, headT, sm, bh, bg].join("|");
+    if (!it.fk || it.fk.key !== key) it.fk = { key, fr: bestFrame(it, W, H, zoom, eyePct, headT, sm, bh) };
+    return it.fk.fr;
+  }
+
+  // man: elle düzeltme { dx, dy, z } — dx/dy kadraj boyutunun oranı (görüntünün kaydırılması), z yakınlık çarpanı. fast: önizleme (Lanczos yok).
+  function render(it, W, H, man, fast) {
+    if (man === undefined) man = it.man;
     const zoom = $("#zoom").value / 100, eyePct = $("#top").value / 100, headT = $("#align").value === "head" ? $("#head").value / 100 : null;
     let c = document.createElement("canvas"), x;
     const gain = $("#fx_expo").checked ? (it.gain || 1) : 1;
     if (it.face) {
       // Yüz noktalarına göre sabit kadraj: göz hizası ve göz-çene mesafesi her fotoğrafta aynı (kenara taşmadıkça)
       const { ex, ey } = it.face;
-      const fr = bestFrame(it, W, H, zoom, eyePct, headT, $("#shift").value / 100, $("#hcenter").value === "head");
-      const { k: kOut, ang, tx, ty } = fr; it.gap = fr.gap;
-      it.zoomUp = fr.z / zoom;                                                  // ayarlı yakınlığa göre ek yakınlaştırma
-      it.headOff = (headCenter(it) - (ex + tx)) / (W / kOut);                  // baş ortası kadraj ortasından kaç oran kaçık
+      const fr = autoFrame(it, W, H, zoom, eyePct, headT);
+      let { k: kOut, ang, tx, ty } = fr;
+      if (!fast) {
+        it.gap = fr.gap;
+        it.zoomUp = fr.z / zoom;                                                // ayarlı yakınlığa göre ek yakınlaştırma
+        it.headOff = (headCenter(it) - (ex + tx)) / (W / kOut);                // baş ortası kadraj ortasından kaç oran kaçık
+      }
+      if (man) {
+        const fh0 = H / kOut, ca = Math.cos(ang), sa = Math.sin(ang);
+        kOut *= man.z;                                                          // yakınlaştırma kadraj merkezi etrafında
+        const fw = W / kOut, fh = H / kOut, u = (0.5 - fr.eyePct) * (fh0 - fh);
+        tx -= sa * u; ty += ca * u;
+        const px = man.dx * fw, py = man.dy * fh;                               // görüntü parmakla aynı yöne kayar
+        tx -= ca * px - sa * py; ty -= sa * px + ca * py;
+      }
       const IW = Math.max(W, Math.round(W / kOut)), IH = Math.round(IW * H / W);
       const q = IW * kOut / W;                           // ara tuval pikseli / kaynak pikseli
       c.width = IW; c.height = IH;
@@ -565,18 +613,24 @@
       let Hc = P / (1 - topPct) / zoom, Wc = Hc * W / H;
       const fit = Math.min(1, it.cut.width / Wc, it.cut.height / Hc);   // kadraj fotoğraftan büyükse küçült
       Hc *= fit; Wc *= fit;
-      const top = Math.min(Math.max(0, y0 - Hc * topPct), it.cut.height - Hc);
-      const left = Math.min(Math.max(0, cx - Wc / 2), it.cut.width - Wc);
+      let top = Math.min(Math.max(0, y0 - Hc * topPct), it.cut.height - Hc);
+      let left = Math.min(Math.max(0, cx - Wc / 2), it.cut.width - Wc);
+      if (man) {                                                        // elle düzeltme: merkez etrafında yakınlaştır, sonra kaydır
+        const cx0 = left + Wc / 2, cy0 = top + Hc / 2;
+        Wc /= man.z; Hc /= man.z;
+        left = cx0 - Wc / 2 - man.dx * Wc; top = cy0 - Hc / 2 - man.dy * Hc;
+      }
       c.width = Math.max(W, Math.round(Wc)); c.height = Math.max(H, Math.round(Hc));
       x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
       x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
       const k = c.height / Hc;
       paintCut(c, x, gain, t => t.drawImage(it.cut, -left * k, -top * k, it.cut.width * k, it.cut.height * k));
     }
-    // 2) Lanczos3 ile tek adımda küçült (keskin ama tırtıksız; masaüstü programlarının kullandığı yöntem)
-    const src = x.getImageData(0, 0, c.width, c.height);
     const f = document.createElement("canvas"); f.width = W; f.height = H;
     const fx = f.getContext("2d");
+    if (fast) { fx.imageSmoothingQuality = "high"; fx.drawImage(c, 0, 0, W, H); return f; }   // önizleme: hızlı küçültme
+    // 2) Lanczos3 ile tek adımda küçült (keskin ama tırtıksız; masaüstü programlarının kullandığı yöntem)
+    const src = x.getImageData(0, 0, c.width, c.height);
     const small = lanczos(src, W, H);
     if ($("#fx_sharp").checked) sharpenData(small, 0.25);
     fx.putImageData(small, 0, 0);
@@ -753,7 +807,7 @@
     it.blob = blob; it.url = URL.createObjectURL(blob);
     const ph = it.el.querySelector(".ph"); ph.innerHTML = ""; const im = new Image(); im.src = it.url; ph.appendChild(im);
     const wr = warnsOf(it); it.rGain = it.gain || 1; it.rWarn = wr.join();
-    setSt(it, "tamam · " + Math.round(blob.size / 1024) + " KB" + (wr.length ? " · ⚠ " + wr.join(", ") : ""), "ok" + (wr.length ? " warn" : ""));
+    setSt(it, "tamam · " + Math.round(blob.size / 1024) + " KB" + (it.man ? " · ✎" : "") + (wr.length ? " · ⚠ " + wr.join(", ") : ""), "ok" + (wr.length ? " warn" : ""));
     updateWarnBox();
   }
 
@@ -795,9 +849,78 @@
     for (const it of items) if (it.blob && (Math.abs((it.gain || 1) - (it.rGain || 1)) > 0.01 || warnsOf(it).join() !== it.rWarn)) await renderItem(it);
     busy = false; $("#start").disabled = false;
     const ok = items.filter(i => i.blob).length;
-    msg(ok + " fotoğraf hazır. Renk ve kadraj ayarını değiştirirsen anında yenilenir." + (faceErr ? " (" + faceErr + ")" : ""));
+    msg(ok + " fotoğraf hazır. Ayar değişince yenilenir. Kadrajı elle düzeltmek için fotoğrafa dokun." + (faceErr ? " (" + faceErr + ")" : ""));
     $("#zip").disabled = !ok; $("#share").disabled = !ok;
   };
+
+  // ---------- elle kadraj düzeltme: dokun, sürükle, iki parmakla yakınlaştır ----------
+  const ed = { it: null, man: null, ptr: new Map(), prev: null, raf: 0 }, edc = $("#edc");
+  const EDW = 399, EDH = 513, ZMIN = 0.5, ZMAX = 2.5;
+  const edClamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  function edDraw() {
+    ed.raf = 0;
+    if (!ed.it) return;
+    const f = render(ed.it, EDW, EDH, ed.man, true), x = edc.getContext("2d");
+    x.clearRect(0, 0, EDW, EDH); x.drawImage(f, 0, 0);
+    $("#edz").value = Math.round(ed.man.z * 100);
+  }
+  const edSched = () => { if (!ed.raf) ed.raf = requestAnimationFrame(edDraw); };
+  function openEditor(it) {
+    if (busy || !it.blob || !it.cut) return;
+    ed.it = it; ed.man = it.man ? { ...it.man } : { dx: 0, dy: 0, z: 1 }; ed.ptr.clear(); ed.prev = null;
+    $("#edname").textContent = it.name;
+    $("#ed").hidden = false; document.body.style.overflow = "hidden";
+    edDraw();
+  }
+  function closeEditor() { $("#ed").hidden = true; document.body.style.overflow = ""; ed.it = null; ed.ptr.clear(); ed.prev = null; }
+  async function edCommit() {
+    const it = ed.it, m = ed.man;
+    if (!it) return;
+    const neutral = Math.abs(m.dx) < 0.002 && Math.abs(m.dy) < 0.002 && Math.abs(m.z - 1) < 0.005;
+    it.man = neutral ? null : { dx: m.dx, dy: m.dy, z: m.z };
+    await renderItem(it);
+  }
+  async function edGo(step) {
+    const it = ed.it; if (!it) return;
+    await edCommit();
+    const list = items.filter(i => i.blob), at = list.indexOf(it), nx = list[at + step];
+    if (nx) openEditor(nx); else closeEditor();
+  }
+  $("#edsave").onclick = async () => { await edCommit(); closeEditor(); };
+  $("#edcancel").onclick = closeEditor;
+  $("#edreset").onclick = () => { ed.man = { dx: 0, dy: 0, z: 1 }; edDraw(); };
+  $("#edprev").onclick = () => edGo(-1);
+  $("#ednext").onclick = () => edGo(1);
+  $("#edz").oninput = e => { ed.man.z = edClamp(e.target.value / 100, ZMIN, ZMAX); edSched(); };
+
+  const edMetric = () => {
+    const p = [...ed.ptr.values()]; if (!p.length) return null;
+    return { n: p.length, cx: p.reduce((s, q) => s + q[0], 0) / p.length, cy: p.reduce((s, q) => s + q[1], 0) / p.length,
+      d: p.length > 1 ? Math.hypot(p[0][0] - p[1][0], p[0][1] - p[1][1]) : 0 };
+  };
+  edc.addEventListener("pointerdown", e => {
+    if (!ed.it) return;
+    try { edc.setPointerCapture(e.pointerId); } catch (_) {}
+    ed.ptr.set(e.pointerId, [e.clientX, e.clientY]); ed.prev = edMetric();
+  });
+  edc.addEventListener("pointermove", e => {
+    if (!ed.it || !ed.ptr.has(e.pointerId)) return;
+    ed.ptr.set(e.pointerId, [e.clientX, e.clientY]);
+    const m = edMetric(), p = ed.prev, r = edc.getBoundingClientRect();
+    if (p && p.n === m.n && r.width > 0) {
+      ed.man.dx = edClamp(ed.man.dx + (m.cx - p.cx) / r.width, -1, 1);
+      ed.man.dy = edClamp(ed.man.dy + (m.cy - p.cy) / r.height, -1, 1);
+      if (m.n > 1 && p.d > 0) ed.man.z = edClamp(ed.man.z * m.d / p.d, ZMIN, ZMAX);
+    }
+    ed.prev = m; edSched();
+  });
+  const edUp = e => { ed.ptr.delete(e.pointerId); ed.prev = edMetric(); };
+  edc.addEventListener("pointerup", edUp);
+  edc.addEventListener("pointercancel", edUp);
+  edc.addEventListener("wheel", e => {
+    if (!ed.it) return; e.preventDefault();
+    ed.man.z = edClamp(ed.man.z * (e.deltaY < 0 ? 1.05 : 1 / 1.05), ZMIN, ZMAX); edSched();
+  }, { passive: false });
 
   // ---------- ZIP (sıkıştırmasız) ----------
   const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
