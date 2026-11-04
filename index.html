@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="2.9">
+<meta name="version" content="3.0">
 <meta name="theme-color" content="#0f172a">
 <title>Bgremover</title>
 <style>
@@ -61,8 +61,8 @@
   </select>
 
   <div id="headBox">
-    <label class="l">Baş üstü boşluğu: <b id="hv">9</b>%</label>
-    <input type="range" id="head" min="3" max="16" step="1" value="9">
+    <label class="l">Baş üstü boşluğu: <b id="hv">5</b>%</label>
+    <input type="range" id="head" min="2" max="14" step="1" value="5">
   </div>
   <div id="eyeBox" hidden>
     <label class="l">Göz hizası (üstten): <b id="tv">38</b>%</label>
@@ -101,7 +101,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v2.9</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v3.0</footer>
 
 <script>
 (() => {
@@ -257,7 +257,7 @@
     const lc = document.createElement("canvas"); lc.width = lw; lc.height = lh;
     const lx = lc.getContext("2d", { willReadFrequently: true }); lx.drawImage(cut, 0, 0, lw, lh);
     const low = { d: lx.getImageData(0, 0, lw, lh).data, sw: lw, sh: lh, kx: cut.width / lw, ky: cut.height / lh };
-    const need = Math.max(4, Math.round(0.015 * lw)), alphaRow = r => { let c = 0; for (let i = 0; i < lw; i++) if (low.d[(r * lw + i) * 4 + 3] > 128) c++; return c; };
+    const need = Math.max(4, Math.round(0.015 * lw)), alphaRow = r => { let c = 0; for (let i = 0; i < lw; i++) if (low.d[(r * lw + i) * 4 + 3] > 48) c++; return c; };   // yumuşak saç kenarı da görünür sayılır
     let tr = 0;                                                      // başın en üstü: art arda 3 satırda yeterli opak piksel
     for (; tr < lh - 3; tr++) if (alphaRow(tr) >= need && alphaRow(tr + 1) >= need && alphaRow(tr + 2) >= need) break;
     return { y0: y0 * k, P: Math.max(1, P * k), cx: (n ? sx / n : sw / 2) * k, low, top: tr * low.ky };
