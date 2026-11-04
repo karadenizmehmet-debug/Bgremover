@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="2.2">
+<meta name="version" content="2.3">
 <meta name="theme-color" content="#0f172a">
 <title>Vesikalık Arka Plan</title>
 <style>
@@ -89,7 +89,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v2.2</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v2.3</footer>
 
 <script>
 (() => {
@@ -287,28 +287,53 @@
     } finally { if (bmp.close) bmp.close(); }
   }
 
+  // Kadrajın fotoğrafın dışına taşıp kenarda boş (arka plan renkli) şerit bırakmasını önler:
+  // önce kadrajı kaydırır, yetmezse biraz yakınlaştırır; eğim düzeltmesi sığmıyorsa eğimi uygulamaz.
+  function fitFrame(face, w, h, W, H, zoom, eyePct) {
+    const { ex, ey, ec } = face;
+    const k0 = (EYE_CHIN * zoom * H) / ec;               // çıktı pikseli / kaynak pikseli
+    const place = (ang, g) => {
+      const k = k0 * g, fw = W / k, fh = H / k, ca = Math.cos(ang), sa = Math.sin(ang);
+      let loX = -Infinity, hiX = Infinity, loY = -Infinity, hiY = Infinity;
+      for (const [ux, uy] of [[-fw / 2, -eyePct * fh], [fw / 2, -eyePct * fh], [-fw / 2, (1 - eyePct) * fh], [fw / 2, (1 - eyePct) * fh]]) {
+        const rx = ca * ux - sa * uy, ry = sa * ux + ca * uy;   // kadraj köşesi, göze göre, kaynak pikselinde
+        loX = Math.max(loX, -ex - rx); hiX = Math.min(hiX, w - ex - rx);
+        loY = Math.max(loY, -ey - ry); hiY = Math.min(hiY, h - ey - ry);
+      }
+      if (loX > hiX || loY > hiY) return null;
+      return { k, ang, tx: Math.min(Math.max(0, loX), hiX), ty: Math.min(Math.max(0, loY), hiY) };
+    };
+    let r = null;
+    if (face.ang) for (let i = 0; i <= 4 && !r; i++) r = place(face.ang, 1 + 0.02 * i);   // eğimi düzeltmek için en fazla %8 yakınlaş
+    if (!r) r = place(0, Math.max(1, W / (k0 * w), H / (k0 * h)) * 1.0001);
+    return r || { k: k0, ang: 0, tx: 0, ty: 0 };
+  }
+
   // ---------- kadraj + arka plan ----------
   function render(it, W, H) {
     const zoom = $("#zoom").value / 100, eyePct = $("#top").value / 100;
     let c = document.createElement("canvas"), x;
     if (it.face) {
-      // Yüz noktalarına göre sabit kadraj: göz hizası ve göz-çene mesafesi her fotoğrafta aynı
-      const { ex, ey, ec, ang } = it.face;
-      const kOut = (EYE_CHIN * zoom * H) / ec;          // çıktı pikseli / kaynak pikseli
+      // Yüz noktalarına göre sabit kadraj: göz hizası ve göz-çene mesafesi her fotoğrafta aynı (kenara taşmadıkça)
+      const { ex, ey } = it.face;
+      const { k: kOut, ang, tx, ty } = fitFrame(it.face, it.cut.width, it.cut.height, W, H, zoom, eyePct);
       const IW = Math.max(W, Math.round(W / kOut)), IH = Math.round(IW * H / W);
       const q = IW * kOut / W;                           // ara tuval pikseli / kaynak pikseli
       c.width = IW; c.height = IH;
       x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
       x.fillStyle = bg; x.fillRect(0, 0, IW, IH);
-      x.translate(IW / 2, eyePct * IH); x.rotate(-ang); x.scale(q, q); x.translate(-ex, -ey);
+      x.translate(IW / 2, eyePct * IH); x.rotate(-ang); x.scale(q, q); x.translate(-(ex + tx), -(ey + ty));
       x.drawImage(it.cut, 0, 0);
       x.setTransform(1, 0, 0, 1, 0, 0);
     } else {
       // Yüz bulunamazsa eski yöntem: silüetin tepesinden kadraj
       const topPct = 0.09;
       const { y0, P, cx } = it.info;
-      const Hc = P / (1 - topPct) / zoom, Wc = Hc * W / H;
-      const top = y0 - Hc * topPct, left = cx - Wc / 2;
+      let Hc = P / (1 - topPct) / zoom, Wc = Hc * W / H;
+      const fit = Math.min(1, it.cut.width / Wc, it.cut.height / Hc);   // kadraj fotoğraftan büyükse küçült
+      Hc *= fit; Wc *= fit;
+      const top = Math.min(Math.max(0, y0 - Hc * topPct), it.cut.height - Hc);
+      const left = Math.min(Math.max(0, cx - Wc / 2), it.cut.width - Wc);
       c.width = Math.max(W, Math.round(Wc)); c.height = Math.max(H, Math.round(Hc));
       x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
       x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
