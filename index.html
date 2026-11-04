@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.8">
+<meta name="version" content="3.9">
 <meta name="theme-color" content="#0f172a">
 <title>e-Okul Fotoğraf Düzenleme Otomasyonu</title>
 <style>
@@ -139,6 +139,8 @@
     <div class="edview"><canvas id="edc" width="399" height="513"></canvas></div>
     <div class="edhint">Sürükle: kaydır · İki parmak: yakınlaştır / uzaklaştır</div>
     <input type="range" id="edz" min="50" max="250" step="1" value="100">
+    <div class="edhint" style="margin-top:10px">Döndürme: <b id="edrv">0.0</b>°</div>
+    <input type="range" id="edr" min="-150" max="150" step="1" value="0">
     <div class="row">
       <button class="btn sec" id="edprev">‹</button>
       <button class="btn sec" id="edreset">Sıfırla</button>
@@ -149,7 +151,7 @@
   </div>
 </div>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v3.8</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v3.9</footer>
 
 <script>
 (() => {
@@ -589,10 +591,12 @@
         it.headOff = (headCenter(it) - (ex + tx)) / (W / kOut);                // baş ortası kadraj ortasından kaç oran kaçık
       }
       if (man) {
-        const fh0 = H / kOut, ca = Math.cos(ang), sa = Math.sin(ang);
-        kOut *= man.z;                                                          // yakınlaştırma kadraj merkezi etrafında
-        const fw = W / kOut, fh = H / kOut, u = (0.5 - fr.eyePct) * (fh0 - fh);
-        tx -= sa * u; ty += ca * u;
+        // merkez sabit kalır: yakınlaştırma ve döndürme kadraj merkezi etrafında, sonra kaydırma
+        const fh0 = H / kOut, c0 = Math.cos(ang), s0 = Math.sin(ang), v0 = (0.5 - fr.eyePct) * fh0;
+        const cX = tx - s0 * v0, cY = ty + c0 * v0;                             // kadraj merkezinin göze göre konumu (kaynak pikseli)
+        kOut *= man.z; ang -= man.r || 0;                                       // r pozitif: görüntü saat yönünde döner
+        const fw = W / kOut, fh = H / kOut, ca = Math.cos(ang), sa = Math.sin(ang), v = (0.5 - fr.eyePct) * fh;
+        tx = cX + sa * v; ty = cY - ca * v;
         const px = man.dx * fw, py = man.dy * fh;                               // görüntü parmakla aynı yöne kayar
         tx -= ca * px - sa * py; ty -= sa * px + ca * py;
       }
@@ -624,7 +628,12 @@
       x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
       x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
       const k = c.height / Hc;
-      paintCut(c, x, gain, t => t.drawImage(it.cut, -left * k, -top * k, it.cut.width * k, it.cut.height * k));
+      paintCut(c, x, gain, t => {
+        t.save();
+        if (man && man.r) { t.translate(c.width / 2, c.height / 2); t.rotate(man.r); t.translate(-c.width / 2, -c.height / 2); }
+        t.drawImage(it.cut, -left * k, -top * k, it.cut.width * k, it.cut.height * k);
+        t.restore();
+      });
     }
     const f = document.createElement("canvas"); f.width = W; f.height = H;
     const fx = f.getContext("2d");
@@ -863,11 +872,12 @@
     const f = render(ed.it, EDW, EDH, ed.man, true), x = edc.getContext("2d");
     x.clearRect(0, 0, EDW, EDH); x.drawImage(f, 0, 0);
     $("#edz").value = Math.round(ed.man.z * 100);
+    const dg = (ed.man.r || 0) * 180 / Math.PI; $("#edr").value = Math.round(dg * 10); $("#edrv").textContent = dg.toFixed(1);
   }
   const edSched = () => { if (!ed.raf) ed.raf = requestAnimationFrame(edDraw); };
   function openEditor(it) {
     if (busy || !it.blob || !it.cut) return;
-    ed.it = it; ed.man = it.man ? { ...it.man } : { dx: 0, dy: 0, z: 1 }; ed.ptr.clear(); ed.prev = null;
+    ed.it = it; ed.man = it.man ? { r: 0, ...it.man } : { dx: 0, dy: 0, z: 1, r: 0 }; ed.ptr.clear(); ed.prev = null;
     $("#edname").textContent = it.name;
     $("#ed").hidden = false; document.body.style.overflow = "hidden";
     edDraw();
@@ -876,8 +886,8 @@
   async function edCommit() {
     const it = ed.it, m = ed.man;
     if (!it) return;
-    const neutral = Math.abs(m.dx) < 0.002 && Math.abs(m.dy) < 0.002 && Math.abs(m.z - 1) < 0.005;
-    it.man = neutral ? null : { dx: m.dx, dy: m.dy, z: m.z };
+    const neutral = Math.abs(m.dx) < 0.002 && Math.abs(m.dy) < 0.002 && Math.abs(m.z - 1) < 0.005 && Math.abs(m.r || 0) < 0.0009;
+    it.man = neutral ? null : { dx: m.dx, dy: m.dy, z: m.z, r: m.r || 0 };
     await renderItem(it);
   }
   async function edGo(step) {
@@ -888,9 +898,10 @@
   }
   $("#edsave").onclick = async () => { await edCommit(); closeEditor(); };
   $("#edcancel").onclick = closeEditor;
-  $("#edreset").onclick = () => { ed.man = { dx: 0, dy: 0, z: 1 }; edDraw(); };
+  $("#edreset").onclick = () => { ed.man = { dx: 0, dy: 0, z: 1, r: 0 }; edDraw(); };
   $("#edprev").onclick = () => edGo(-1);
   $("#ednext").onclick = () => edGo(1);
+  $("#edr").oninput = e => { ed.man.r = e.target.value / 10 * Math.PI / 180; edSched(); };
   $("#edz").oninput = e => { ed.man.z = edClamp(e.target.value / 100, ZMIN, ZMAX); edSched(); };
 
   const edMetric = () => {
