@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="1.9">
+<meta name="version" content="2.0">
 <meta name="theme-color" content="#0f172a">
 <title>Vesikalık Arka Plan</title>
 <style>
@@ -89,7 +89,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v1.9</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v2.0</footer>
 
 <script>
 (() => {
@@ -214,7 +214,7 @@
   // ---------- hazırlık ----------
   async function prepare(file) {
     const bmp = await createImageBitmap(file);
-    const s = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+    const s = Math.min(1, 2048 / Math.max(bmp.width, bmp.height));
     const w = Math.round(bmp.width * s), h = Math.round(bmp.height * s);
     const c = document.createElement("canvas"); c.width = w; c.height = h;
     c.getContext("2d").drawImage(bmp, 0, 0, w, h);
@@ -251,21 +251,49 @@
     // 1) kadrajı orijinal çözünürlükte çiz
     let c = document.createElement("canvas");
     c.width = Math.max(W, Math.round(Wc)); c.height = Math.max(H, Math.round(Hc));
-    let x = c.getContext("2d"); x.imageSmoothingQuality = "high";
+    let x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
     x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
     const k = c.height / Hc;
     x.drawImage(it.cut, -left * k, -top * k, it.cut.width * k, it.cut.height * k);
-    // 2) yarıya yarıya küçült (tek adımda küçültmek bulanıklık ve tırtık yapar)
-    while (c.height / 2 >= H) {
-      const n = document.createElement("canvas");
-      n.width = Math.max(W, Math.round(c.width / 2)); n.height = Math.round(c.height / 2);
-      const nx = n.getContext("2d"); nx.imageSmoothingQuality = "high";
-      nx.drawImage(c, 0, 0, n.width, n.height); c = n;
-    }
+    // 2) Lanczos3 ile tek adımda küçült (keskin ama tırtıksız; masaüstü programlarının kullandığı yöntem)
+    const src = x.getImageData(0, 0, c.width, c.height);
     const f = document.createElement("canvas"); f.width = W; f.height = H;
-    const fx = f.getContext("2d"); fx.imageSmoothingQuality = "high";
-    fx.drawImage(c, 0, 0, W, H);
+    const fx = f.getContext("2d");
+    fx.putImageData(lanczos(src, W, H), 0, 0);
     return f;
+  }
+
+  function lanczosTable(sn, dn) {
+    const A = 3, s = sn / dn, fs = Math.max(1, s), sup = A * fs, tab = [];
+    const L = t => { if (t === 0) return 1; if (t <= -A || t >= A) return 0; const p = Math.PI * t; return A * Math.sin(p) * Math.sin(p / A) / (p * p); };
+    for (let d = 0; d < dn; d++) {
+      const ctr = (d + 0.5) * s - 0.5, lo = Math.ceil(ctr - sup), hi = Math.floor(ctr + sup);
+      const idx = [], w = []; let sum = 0;
+      for (let j = lo; j <= hi; j++) { const v = L((j - ctr) / fs); if (!v) continue; idx.push(Math.min(sn - 1, Math.max(0, j))); w.push(v); sum += v; }
+      for (let k = 0; k < w.length; k++) w[k] /= sum;
+      tab.push([idx, w]);
+    }
+    return tab;
+  }
+  function lanczos(img, dw, dh) {
+    const sw = img.width, sh = img.height, s = img.data;
+    const tx = lanczosTable(sw, dw), ty = lanczosTable(sh, dh);
+    const tmp = new Float32Array(dw * sh * 3);
+    for (let y = 0; y < sh; y++) for (let dx = 0; dx < dw; dx++) {
+      const [idx, w] = tx[dx]; let r = 0, g = 0, b = 0;
+      for (let k = 0; k < idx.length; k++) { const p = (y * sw + idx[k]) * 4; r += s[p] * w[k]; g += s[p + 1] * w[k]; b += s[p + 2] * w[k]; }
+      const q = (y * dw + dx) * 3; tmp[q] = r; tmp[q + 1] = g; tmp[q + 2] = b;
+    }
+    const out = new ImageData(dw, dh), o = out.data;
+    for (let dy = 0; dy < dh; dy++) {
+      const [idx, w] = ty[dy];
+      for (let dx = 0; dx < dw; dx++) {
+        let r = 0, g = 0, b = 0;
+        for (let k = 0; k < idx.length; k++) { const q = (idx[k] * dw + dx) * 3; r += tmp[q] * w[k]; g += tmp[q + 1] * w[k]; b += tmp[q + 2] * w[k]; }
+        const p = (dy * dw + dx) * 4; o[p] = r; o[p + 1] = g; o[p + 2] = b; o[p + 3] = 255;
+      }
+    }
+    return out;
   }
 
   // hafif keskinleştirme (küçültmeden sonra detay geri gelir)
