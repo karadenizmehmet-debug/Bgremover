@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="3.2">
+<meta name="version" content="3.3">
 <meta name="theme-color" content="#0f172a">
 <title>Bgremover</title>
 <style>
@@ -54,26 +54,26 @@
   <label class="l">Yakınlık: <b id="zv">100</b>%</label>
   <input type="range" id="zoom" min="80" max="130" step="5" value="100">
 
-  <label class="l">Yüzün ortadan en fazla kayması: <b id="sv">4</b>%</label>
-  <input type="range" id="shift" min="0" max="16" step="1" value="4">
+  <label class="l">Yüzün ortadan en fazla kayması: <b id="sv">16</b>%</label>
+  <input type="range" id="shift" min="0" max="16" step="1" value="16">
 
   <label class="l">Yatay ortalama</label>
   <select id="hcenter">
-    <option value="head" selected>Başa göre (saç / başörtüsü dahil)</option>
-    <option value="face">Yüze (gözlere) göre</option>
+    <option value="face" selected>Yüze (gözlere) göre</option>
+    <option value="head">Başa göre (saç / başörtüsü dahil)</option>
   </select>
 
   <label class="l">Dikey hizalama</label>
   <select id="align">
-    <option value="head" selected>Baş üstü boşluğu hepsinde aynı (önerilen)</option>
-    <option value="eye">Göz hizası hepsinde aynı</option>
+    <option value="eye" selected>Göz hizası hepsinde aynı</option>
+    <option value="head">Baş üstü boşluğu hepsinde aynı</option>
   </select>
 
-  <div id="headBox">
+  <div id="headBox" hidden>
     <label class="l">Baş üstü boşluğu: <b id="hv">5</b>%</label>
     <input type="range" id="head" min="2" max="14" step="1" value="5">
   </div>
-  <div id="eyeBox" hidden>
+  <div id="eyeBox">
     <label class="l">Göz hizası (üstten): <b id="tv">38</b>%</label>
     <input type="range" id="top" min="30" max="48" step="1" value="38">
   </div>
@@ -110,7 +110,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v3.2</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v3.3</footer>
 
 <script>
 (() => {
@@ -138,6 +138,15 @@
   $("#head").oninput = e => { $("#hv").textContent = e.target.value; schedule(); };
   $("#align").onchange = e => { const h = e.target.value === "head"; $("#headBox").hidden = !h; $("#eyeBox").hidden = h; schedule(); };
   $("#size").onchange = schedule;
+
+  // kadraj ayarları bir sonraki açılışta hatırlanır
+  const KEYS = ["zoom", "shift", "align", "hcenter", "head", "top"], EV = { align: "change", hcenter: "change" };
+  const saveSet = () => { try { const o = {}; KEYS.forEach(k => o[k] = $("#" + k).value); localStorage.setItem("bgr-ayar", JSON.stringify(o)); } catch (e) {} };
+  try {
+    const sv = JSON.parse(localStorage.getItem("bgr-ayar") || "{}");
+    KEYS.forEach(k => { if (sv[k] != null) { $("#" + k).value = sv[k]; $("#" + k).dispatchEvent(new Event(EV[k] || "input")); } });
+  } catch (e) {}
+  KEYS.forEach(k => $("#" + k).addEventListener(EV[k] || "input", saveSet));
 
   // ---------- dosya seçimi ----------
   $("#file").onchange = e => {
