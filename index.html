@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="3.3">
+<meta name="version" content="3.4">
 <meta name="theme-color" content="#0f172a">
 <title>Bgremover</title>
 <style>
@@ -59,8 +59,8 @@
 
   <label class="l">Yatay ortalama</label>
   <select id="hcenter">
-    <option value="face" selected>Yüze (gözlere) göre</option>
-    <option value="head">Başa göre (saç / başörtüsü dahil)</option>
+    <option value="head" selected>Başa göre: kafanın sağı ve solu eşit (önerilen)</option>
+    <option value="face">Yüze (gözlere) göre</option>
   </select>
 
   <label class="l">Dikey hizalama</label>
@@ -110,7 +110,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v3.3</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v3.4</footer>
 
 <script>
 (() => {
@@ -141,9 +141,9 @@
 
   // kadraj ayarları bir sonraki açılışta hatırlanır
   const KEYS = ["zoom", "shift", "align", "hcenter", "head", "top"], EV = { align: "change", hcenter: "change" };
-  const saveSet = () => { try { const o = {}; KEYS.forEach(k => o[k] = $("#" + k).value); localStorage.setItem("bgr-ayar", JSON.stringify(o)); } catch (e) {} };
+  const saveSet = () => { try { const o = {}; KEYS.forEach(k => o[k] = $("#" + k).value); localStorage.setItem("bgr-ayar2", JSON.stringify(o)); } catch (e) {} };
   try {
-    const sv = JSON.parse(localStorage.getItem("bgr-ayar") || "{}");
+    const sv = JSON.parse(localStorage.getItem("bgr-ayar2") || "{}");
     KEYS.forEach(k => { if (sv[k] != null) { $("#" + k).value = sv[k]; $("#" + k).dispatchEvent(new Event(EV[k] || "input")); } });
   } catch (e) {}
   KEYS.forEach(k => $("#" + k).addEventListener(EV[k] || "input", saveSet));
@@ -376,18 +376,21 @@
     return worst;
   }
 
-  // Başın (saç / başörtüsü dahil) yatay orta noktası: baş üstünden gözlerin biraz altına kadar satırların sol-sağ uçlarının ortası
+  // Başın (saç / başörtüsü / kulaklar dahil) sol ve sağ uçlarının ortası: kafa kadrajın iki kenarına eşit uzaklıkta kalsın.
+  // Baş üstünden yanak hizasına kadar satırlara bakılır (başörtüsü / eşarp altı hesaba katılmaz).
   function headCenter(it) {
     if (it.headCx != null) return it.headCx;
     const m = it.info.low, { ex, ey, ec } = it.face;
-    const y0 = Math.floor(it.info.top / m.ky) + 2, y1 = Math.min(m.sh - 1, Math.floor((ey + 0.8 * ec) / m.ky)), mids = [];
+    const y0 = Math.floor(it.info.top / m.ky) + 2, y1 = Math.min(m.sh - 1, Math.floor((ey + 0.6 * ec) / m.ky)), L = [], R = [];
     for (let y = y0; y <= y1; y++) {
       let a = -1, b = -1;
       for (let i = 0; i < m.sw; i++) if (m.d[(y * m.sw + i) * 4 + 3] > 48) { if (a < 0) a = i; b = i; }
-      if (a >= 0 && b - a > 6) mids.push((a + b + 1) / 2 * m.kx);
+      if (a >= 0 && b - a > 6) { L.push(a * m.kx); R.push((b + 1) * m.kx); }
     }
-    mids.sort((p, q) => p - q);
-    return (it.headCx = mids.length >= 5 ? mids[mids.length >> 1] : ex);
+    if (L.length < 5) return (it.headCx = ex);
+    L.sort((p, q) => p - q); R.sort((p, q) => p - q);
+    const l = L[Math.floor(0.05 * (L.length - 1))], r = R[Math.ceil(0.95 * (R.length - 1))];   // en geniş yer (aykırı noktalar hariç)
+    return (it.headCx = (l + r) / 2);
   }
 
   // Alt köşelerde boşluk varsa kadrajı en fazla shiftMax kadar kaydırır, yetmezse en fazla %24 yakınlaştırır (yüz ortada kalsın).
@@ -400,10 +403,10 @@
       const eyeP = headT == null ? eyePct : Math.min(0.6, Math.max(0.2, headT + (ey - it.info.top) * EYE_CHIN * z / ec));   // göz hizası fotoğrafa göre değişir
       const fr = fitFrame(it.face, w, h, W, H, z, eyeP, headT != null), fw = W / fr.k, fh = H / fr.k;
       const pen = headT == null ? 0 : Math.max(0, -fr.ty / fh - 0.03);   // alt sınır yüzünden kadraj çok yukarı kayıp baş üstü boşluğunu bozmasın
-      const base = byHead ? Math.min(Math.max(headCenter(it) - it.face.ex, -0.08 * fw), 0.08 * fw) : 0;   // yüz ortadan en fazla %8 kayar
+      const base = byHead ? Math.min(Math.max(headCenter(it) - it.face.ex, -0.15 * fw), 0.15 * fw) : 0;   // baş ortalanır (yüzden en fazla %15 sapar)
       const tx0 = Math.min(Math.max(fr.tx + base, fr.loX), fr.hiX);
       let loc = null;
-      for (const s of shiftMax > 0 ? [0, -shiftMax / 2, shiftMax / 2, -shiftMax, shiftMax] : [0]) {   // kaydırma, kadraj genişliğinin oranı (yüz ortada kalsın diye sınırlı)
+      for (const s of shiftMax > 0 && !byHead ? [0, -shiftMax / 2, shiftMax / 2, -shiftMax, shiftMax] : [0]) {   // baş ortalıysa sağ-sol eşitliği bozulmasın: boşluk yalnız yakınlaştırmayla kapanır   // kaydırma, kadraj genişliğinin oranı (yüz ortada kalsın diye sınırlı)
         const tx = Math.min(Math.max(tx0 + s * fw, fr.loX), fr.hiX);
         const gap = edgeGap(it, { ...fr, tx }, W, H, eyeP), score = gap + pen;
         if (!loc || score < loc.score - 0.004) loc = { ...fr, tx, gap, score, eyePct: eyeP };
