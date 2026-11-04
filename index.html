@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="author" content="Mehmet Karadeniz, 2026-2027">
+<meta name="theme-color" content="#0f172a">
+<title>Vesikalık Arka Plan</title>
+<style>
+  :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#e2e8f0;--mut:#94a3b8;--acc:#38bdf8;--ok:#4ade80;--err:#f87171}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 system-ui,sans-serif;padding:16px;max-width:760px;margin-inline:auto}
+  h1{font-size:1.3rem;margin:0 0 2px}
+  .sub{color:var(--mut);font-size:.85rem;margin:0 0 16px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+  .btn{display:block;width:100%;text-align:center;background:var(--acc);color:#04202e;font-weight:700;border:0;border-radius:12px;padding:14px;font-size:1rem;cursor:pointer}
+  .btn.sec{background:#334155;color:var(--txt)}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .sw{width:38px;height:38px;border-radius:50%;border:3px solid transparent;cursor:pointer;outline:1px solid var(--line)}
+  .sw.on{border-color:var(--acc)}
+  input[type=color]{width:46px;height:38px;border:0;background:none;padding:0}
+  label.l{display:block;font-size:.85rem;color:var(--mut);margin:12px 0 4px}
+  input[type=range]{width:100%}
+  select{width:100%;padding:10px;border-radius:10px;background:#0f172a;color:var(--txt);border:1px solid var(--line)}
+  #bar{height:10px;background:#0f172a;border-radius:6px;overflow:hidden;margin-top:10px;display:none}
+  #bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
+  #msg{font-size:.85rem;color:var(--mut);margin-top:8px;min-height:1.2em}
+  #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+  .it{background:#0f172a;border:1px solid var(--line);border-radius:10px;padding:6px;text-align:center;font-size:.7rem;color:var(--mut)}
+  .it .ph{aspect-ratio:133/171;background:#111827;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .it img{width:100%;height:100%;object-fit:contain}
+  .it .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
+  .it.ok .st{color:var(--ok)}.it.er .st{color:var(--err)}
+  footer{text-align:center;color:var(--mut);font-size:.72rem;margin:18px 0}
+</style>
+</head>
+<body>
+<h1>Vesikalık Arka Plan</h1>
+<p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
+
+<section>
+  <label class="btn" for="file">📷 Fotoğrafları seç (en fazla 40)</label>
+  <input id="file" type="file" accept="image/*" multiple hidden>
+  <div id="count" class="sub" style="margin:8px 0 0"></div>
+</section>
+
+<section>
+  <div class="row" id="sw"></div>
+  <label class="l">Özel renk</label>
+  <input type="color" id="custom" value="#ffffff">
+
+  <label class="l">Yakınlık: <b id="zv">100</b>%</label>
+  <input type="range" id="zoom" min="70" max="140" step="5" value="100">
+
+  <label class="l">Baş üstü boşluk: <b id="tv">9</b>%</label>
+  <input type="range" id="top" min="3" max="18" step="1" value="9">
+
+  <label class="l">Çıktı boyutu</label>
+  <select id="size">
+    <option value="133x171">133 × 171 px (e-Okul, 20-150 KB'a ayarlanır)</option>
+    <option value="266x342">266 × 342 px</option>
+    <option value="399x513">399 × 513 px</option>
+  </select>
+</section>
+
+<section>
+  <button class="btn" id="start" disabled>Başlat</button>
+  <div id="bar"><i></i></div>
+  <div id="msg"></div>
+</section>
+
+<section>
+  <div id="grid"></div>
+</section>
+
+<section>
+  <button class="btn" id="zip" disabled>⬇ Hepsini ZIP olarak indir</button>
+  <div style="height:8px"></div>
+  <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
+</section>
+
+<footer>Mehmet Karadeniz, 2026-2027</footer>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const COLORS = [["Beyaz","#ffffff"],["Açık gri","#e5e7eb"],["Açık mavi","#bfdbfe"],["Mavi","#5b8dd6"],["Gri-mavi","#cbd5e1"]];
+  let bg = "#ffffff", items = [], removeBackground = null, cpuOnly = false, token = 0, busy = false;
+
+  // ---------- renk seçimi ----------
+  const swBox = $("#sw");
+  COLORS.forEach(([n, c], i) => {
+    const d = document.createElement("div");
+    d.className = "sw" + (i === 0 ? " on" : ""); d.title = n; d.style.background = c;
+    d.onclick = () => setBg(c); swBox.appendChild(d);
+  });
+  function setBg(c) {
+    bg = c; $("#custom").value = c;
+    [...swBox.children].forEach((d, i) => d.classList.toggle("on", COLORS[i][1] === c));
+    schedule();
+  }
+  $("#custom").oninput = e => setBg(e.target.value);
+  $("#zoom").oninput = e => { $("#zv").textContent = e.target.value; schedule(); };
+  $("#top").oninput = e => { $("#tv").textContent = e.target.value; schedule(); };
+  $("#size").onchange = schedule;
+
+  // ---------- dosya seçimi ----------
+  $("#file").onchange = e => {
+    let files = [...e.target.files];
+    if (files.length > 40) { files = files.slice(0, 40); msg("İlk 40 fotoğraf alındı."); }
+    items.forEach(it => it.url && URL.revokeObjectURL(it.url));
+    items = files.map(f => ({ file: f, name: f.name.replace(/\.[^.]+$/, "") + ".jpg", cut: null, info: null, blob: null, url: null }));
+    const grid = $("#grid"); grid.innerHTML = "";
+    items.forEach((it, i) => {
+      const d = document.createElement("div"); d.className = "it";
+      d.innerHTML = '<div class="ph">⏳</div><div class="nm"></div><div class="st">bekliyor</div>';
+      d.querySelector(".nm").textContent = it.name; it.el = d; grid.appendChild(d);
+    });
+    $("#count").textContent = items.length + " fotoğraf seçildi";
+    $("#start").disabled = !items.length; $("#zip").disabled = true; $("#share").disabled = true;
+  };
+
+  function msg(t) { $("#msg").textContent = t; }
+  function prog(p) { $("#bar").style.display = "block"; $("#bar i").style.width = Math.round(p * 100) + "%"; }
+  function setSt(it, t, cls) { it.el.className = "it " + (cls || ""); it.el.querySelector(".st").textContent = t; }
+
+  // ---------- kütüphane ----------
+  async function loadLib() {
+    if (removeBackground) return;
+    msg("Model hazırlanıyor (ilk açılışta indirilir, biraz sürebilir)...");
+    const m = await import("https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.5.5/+esm");
+    removeBackground = m.removeBackground || m.default;
+  }
+  async function cutout(blob) {
+    const cfg = dev => ({
+      model: "isnet_fp16", device: dev, output: { format: "image/png" },
+      progress: (k, c, t) => { if (t) msg("Model indiriliyor: %" + Math.round(c / t * 100)); }
+    });
+    if (!cpuOnly) {
+      try { return await removeBackground(blob, cfg("gpu")); }
+      catch (e) { console.warn("GPU olmadı, CPU'ya geçiliyor", e); cpuOnly = true; }
+    }
+    return await removeBackground(blob, cfg("cpu"));
+  }
+
+  // ---------- hazırlık ----------
+  async function prepare(file) {
+    const bmp = await createImageBitmap(file);
+    const s = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+    const w = Math.round(bmp.width * s), h = Math.round(bmp.height * s);
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    c.getContext("2d").drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
+    return new Promise(r => c.toBlob(r, "image/jpeg", 0.92));
+  }
+
+  // maskeden baş üstü ve yatay merkez bulma
+  function analyze(cut) {
+    const sw = 160, sh = Math.max(1, Math.round(cut.height * sw / cut.width));
+    const c = document.createElement("canvas"); c.width = sw; c.height = sh;
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.drawImage(cut, 0, 0, sw, sh);
+    const d = x.getImageData(0, 0, sw, sh).data;
+    const rows = new Array(sh).fill(0);
+    for (let y = 0; y < sh; y++) { let n = 0; for (let i = 0; i < sw; i++) if (d[(y * sw + i) * 4 + 3] > 128) n++; rows[y] = n; }
+    const minN = Math.max(3, sw * 0.03);
+    let y0 = 0;
+    for (; y0 < sh - 3; y0++) if (rows[y0] >= minN && rows[y0 + 1] >= minN && rows[y0 + 2] >= minN) break;
+    const P = sh - y0;
+    const yEnd = Math.min(sh, Math.round(y0 + P * 0.25));
+    let sx = 0, n = 0;
+    for (let y = y0; y < yEnd; y++) for (let i = 0; i < sw; i++) if (d[(y * sw + i) * 4 + 3] > 128) { sx += i; n++; }
+    const k = cut.width / sw;
+    return { y0: y0 * k, P: Math.max(1, P * k), cx: (n ? sx / n : sw / 2) * k };
+  }
+
+  // ---------- kadraj + arka plan ----------
+  function render(it, W, H) {
+    const zoom = $("#zoom").value / 100, topPct = $("#top").value / 100;
+    const c = document.createElement("canvas"); c.width = W; c.height = H;
+    const x = c.getContext("2d"); x.imageSmoothingQuality = "high";
+    x.fillStyle = bg; x.fillRect(0, 0, W, H);
+    const { y0, P, cx } = it.info;
+    const Hc = P * 0.85 / zoom, s = H / Hc;
+    const top = y0 - Hc * topPct, left = cx - (Hc * W / H) / 2;
+    x.drawImage(it.cut, -left * s, -top * s, it.cut.width * s, it.cut.height * s);
+    return c;
+  }
+
+  // ---------- JPEG: 20-150 KB aralığı ----------
+  const toBlob = (c, q) => new Promise(r => c.toBlob(r, "image/jpeg", q));
+  async function padJpeg(blob, minBytes) {
+    const src = new Uint8Array(await blob.arrayBuffer());
+    let need = minBytes - src.length; if (need <= 0) return blob;
+    const segs = [];
+    while (need > 0) {
+      const dl = Math.min(65533, Math.max(1, need - 4));
+      const seg = new Uint8Array(4 + dl); seg[0] = 0xFF; seg[1] = 0xFE;
+      seg[2] = (dl + 2) >> 8; seg[3] = (dl + 2) & 255; seg.fill(32, 4);
+      segs.push(seg); need -= seg.length;
+    }
+    return new Blob([src.slice(0, 2), ...segs, src.slice(2)], { type: "image/jpeg" });
+  }
+  async function encode(c) {
+    const MIN = 22 * 1024, MAX = 148 * 1024;
+    let q = 0.95, b = await toBlob(c, q);
+    if (b.size > MAX) {
+      let lo = 0.3, hi = q;
+      for (let i = 0; i < 8; i++) { const m = (lo + hi) / 2; const t = await toBlob(c, m); if (t.size > MAX) hi = m; else lo = m; }
+      b = await toBlob(c, lo);
+    }
+    if (b.size < MIN) b = await padJpeg(b, MIN);
+    return b;
+  }
+
+  async function renderItem(it) {
+    const [W, H] = $("#size").value.split("x").map(Number);
+    const blob = await encode(render(it, W, H));
+    if (it.url) URL.revokeObjectURL(it.url);
+    it.blob = blob; it.url = URL.createObjectURL(blob);
+    const ph = it.el.querySelector(".ph"); ph.innerHTML = ""; const im = new Image(); im.src = it.url; ph.appendChild(im);
+    setSt(it, "tamam · " + Math.round(blob.size / 1024) + " KB", "ok");
+  }
+
+  let tm = null;
+  function schedule() {
+    clearTimeout(tm);
+    tm = setTimeout(async () => {
+      if (busy) return;
+      const my = ++token;
+      for (const it of items) { if (it.cut && my === token) await renderItem(it); }
+    }, 250);
+  }
+
+  // ---------- toplu işlem ----------
+  $("#start").onclick = async () => {
+    if (busy || !items.length) return;
+    busy = true; token++;
+    $("#start").disabled = true; $("#zip").disabled = true; $("#share").disabled = true;
+    try { await loadLib(); } catch (e) { msg("Model yüklenemedi: internet bağlantısını kontrol et. " + e.message); busy = false; $("#start").disabled = false; return; }
+    let done = 0;
+    for (const it of items) {
+      if (!it.cut) {
+        setSt(it, "işleniyor...");
+        try {
+          const src = await prepare(it.file);
+          const out = await cutout(src);
+          it.cut = await createImageBitmap(out);
+          it.info = analyze(it.cut);
+        } catch (e) { console.error(e); setSt(it, "hata", "er"); done++; prog(done / items.length); continue; }
+      }
+      await renderItem(it);
+      done++; prog(done / items.length); msg(done + " / " + items.length + " tamamlandı");
+    }
+    busy = false; $("#start").disabled = false;
+    const ok = items.filter(i => i.blob).length;
+    msg(ok + " fotoğraf hazır. Renk ve kadraj ayarını değiştirirsen anında yenilenir.");
+    $("#zip").disabled = !ok; $("#share").disabled = !ok;
+  };
+
+  // ---------- ZIP (sıkıştırmasız) ----------
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = b => { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function makeZip(files) {
+    const enc = new TextEncoder(), parts = [], cen = []; let off = 0;
+    const now = new Date();
+    const dt = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xFFFF;
+    const dd = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xFFFF;
+    for (const f of files) {
+      const nm = enc.encode(f.name), crc = crc32(f.data), sz = f.data.length;
+      const lh = new DataView(new ArrayBuffer(30 + nm.length));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+      lh.setUint16(10, dt, true); lh.setUint16(12, dd, true); lh.setUint32(14, crc, true); lh.setUint32(18, sz, true); lh.setUint32(22, sz, true);
+      lh.setUint16(26, nm.length, true); lh.setUint16(28, 0, true);
+      new Uint8Array(lh.buffer).set(nm, 30);
+      parts.push(new Uint8Array(lh.buffer), f.data);
+      const ch = new DataView(new ArrayBuffer(46 + nm.length));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+      ch.setUint16(12, dt, true); ch.setUint16(14, dd, true); ch.setUint32(16, crc, true); ch.setUint32(20, sz, true); ch.setUint32(24, sz, true);
+      ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+      new Uint8Array(ch.buffer).set(nm, 46); cen.push(new Uint8Array(ch.buffer));
+      off += lh.byteLength + sz;
+    }
+    const cs = cen.reduce((a, b) => a + b.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cs, true); end.setUint32(16, off, true);
+    return new Blob([...parts, ...cen, new Uint8Array(end.buffer)], { type: "application/zip" });
+  }
+  function uniqueName(n, used) {
+    if (!used.has(n)) { used.add(n); return n; }
+    const b = n.replace(/\.jpg$/, ""); let i = 2; while (used.has(b + "_" + i + ".jpg")) i++;
+    const r = b + "_" + i + ".jpg"; used.add(r); return r;
+  }
+
+  $("#zip").onclick = async () => {
+    const used = new Set(), files = [];
+    for (const it of items) if (it.blob) files.push({ name: uniqueName(it.name, used), data: new Uint8Array(await it.blob.arrayBuffer()) });
+    const z = makeZip(files), a = document.createElement("a");
+    a.href = URL.createObjectURL(z);
+    a.download = "vesikalik_" + new Date().toISOString().slice(0, 10) + ".zip";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  };
+
+  $("#share").onclick = async () => {
+    const used = new Set();
+    const files = items.filter(i => i.blob).map(i => new File([i.blob], uniqueName(i.name, used), { type: "image/jpeg" }));
+    try {
+      if (navigator.canShare && navigator.canShare({ files })) await navigator.share({ files });
+      else msg("Bu tarayıcı çoklu dosya paylaşımını desteklemiyor, ZIP'i kullan.");
+    } catch (e) { if (e.name !== "AbortError") msg("Paylaşım hatası: " + e.message); }
+  };
+})();
+</script>
+</body>
+</html>
