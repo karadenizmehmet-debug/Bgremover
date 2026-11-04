@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
-<meta name="version" content="2.0">
+<meta name="version" content="2.1">
 <meta name="theme-color" content="#0f172a">
 <title>Vesikalık Arka Plan</title>
 <style>
@@ -52,10 +52,10 @@
   <input type="color" id="custom" value="#ffffff">
 
   <label class="l">Yakınlık: <b id="zv">100</b>%</label>
-  <input type="range" id="zoom" min="90" max="150" step="5" value="100">
+  <input type="range" id="zoom" min="80" max="130" step="5" value="100">
 
-  <label class="l">Baş üstü boşluk: <b id="tv">9</b>%</label>
-  <input type="range" id="top" min="3" max="18" step="1" value="9">
+  <label class="l">Göz hizası (üstten): <b id="tv">38</b>%</label>
+  <input type="range" id="top" min="30" max="48" step="1" value="38">
 
   <label class="l">Model (hız / kalite)</label>
   <select id="model">
@@ -89,7 +89,7 @@
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
 </section>
 
-<footer>Mehmet Karadeniz, 2026-2027 · v2.0</footer>
+<footer>Mehmet Karadeniz, 2026-2027 · v2.1</footer>
 
 <script>
 (() => {
@@ -242,19 +242,69 @@
     return { y0: y0 * k, P: Math.max(1, P * k), cx: (n ? sx / n : sw / 2) * k };
   }
 
+  // ---------- yüz noktaları (MediaPipe Face Landmarker) ----------
+  const EYE_CHIN = 0.28;   // göz hizası ile çene arası, kare yüksekliğinin oranı (yakınlık %100)
+  const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+  let landmarker = null, faceTried = false;
+  async function loadFace() {
+    if (landmarker || faceTried) return;
+    faceTried = true;
+    try {
+      msg("Yüz modeli hazırlanıyor...");
+      const { FaceLandmarker, FilesetResolver } = await import(MP + "/vision_bundle.mjs");
+      const fs = await FilesetResolver.forVisionTasks(MP + "/wasm");
+      const opts = d => ({ baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", delegate: d }, runningMode: "IMAGE", numFaces: 1 });
+      try { landmarker = await FaceLandmarker.createFromOptions(fs, opts("GPU")); }
+      catch (e) { console.warn("yüz GPU", e); landmarker = await FaceLandmarker.createFromOptions(fs, opts("CPU")); }
+    } catch (e) { console.warn("Yüz modeli yüklenemedi, silüet yöntemi kullanılacak", e); landmarker = null; }
+  }
+  async function findFace(blob) {
+    if (!landmarker) return null;
+    const bmp = await createImageBitmap(blob);
+    try {
+      const r = landmarker.detect(bmp);
+      const L = r.faceLandmarks && r.faceLandmarks[0];
+      if (!L) return null;
+      const w = bmp.width, h = bmp.height, P = i => [L[i].x * w, L[i].y * h];
+      const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const eR = mid(P(33), P(133)), eL = mid(P(362), P(263));   // göz köşelerinin ortası
+      const e = mid(eR, eL), chin = P(152);
+      let ang = Math.atan2(eL[1] - eR[1], eL[0] - eR[0]);
+      if (Math.abs(ang) > 0.2) ang = 0;                          // aşırı eğimde döndürme yapma
+      const ec = Math.hypot(chin[0] - e[0], chin[1] - e[1]);
+      if (!(ec > 10)) return null;
+      return { ex: e[0], ey: e[1], ec, ang };
+    } finally { if (bmp.close) bmp.close(); }
+  }
+
   // ---------- kadraj + arka plan ----------
   function render(it, W, H) {
-    const zoom = $("#zoom").value / 100, topPct = $("#top").value / 100;
-    const { y0, P, cx } = it.info;
-    const Hc = P / (1 - topPct) / zoom, Wc = Hc * W / H;
-    const top = y0 - Hc * topPct, left = cx - Wc / 2;
-    // 1) kadrajı orijinal çözünürlükte çiz
-    let c = document.createElement("canvas");
-    c.width = Math.max(W, Math.round(Wc)); c.height = Math.max(H, Math.round(Hc));
-    let x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
-    x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
-    const k = c.height / Hc;
-    x.drawImage(it.cut, -left * k, -top * k, it.cut.width * k, it.cut.height * k);
+    const zoom = $("#zoom").value / 100, eyePct = $("#top").value / 100;
+    let c = document.createElement("canvas"), x;
+    if (it.face) {
+      // Yüz noktalarına göre sabit kadraj: göz hizası ve göz-çene mesafesi her fotoğrafta aynı
+      const { ex, ey, ec, ang } = it.face;
+      const kOut = (EYE_CHIN * zoom * H) / ec;          // çıktı pikseli / kaynak pikseli
+      const IW = Math.max(W, Math.round(W / kOut)), IH = Math.round(IW * H / W);
+      const q = IW * kOut / W;                           // ara tuval pikseli / kaynak pikseli
+      c.width = IW; c.height = IH;
+      x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
+      x.fillStyle = bg; x.fillRect(0, 0, IW, IH);
+      x.translate(IW / 2, eyePct * IH); x.rotate(-ang); x.scale(q, q); x.translate(-ex, -ey);
+      x.drawImage(it.cut, 0, 0);
+      x.setTransform(1, 0, 0, 1, 0, 0);
+    } else {
+      // Yüz bulunamazsa eski yöntem: silüetin tepesinden kadraj
+      const topPct = 0.09;
+      const { y0, P, cx } = it.info;
+      const Hc = P / (1 - topPct) / zoom, Wc = Hc * W / H;
+      const top = y0 - Hc * topPct, left = cx - Wc / 2;
+      c.width = Math.max(W, Math.round(Wc)); c.height = Math.max(H, Math.round(Hc));
+      x = c.getContext("2d", { willReadFrequently: true }); x.imageSmoothingQuality = "high";
+      x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height);
+      const k = c.height / Hc;
+      x.drawImage(it.cut, -left * k, -top * k, it.cut.width * k, it.cut.height * k);
+    }
     // 2) Lanczos3 ile tek adımda küçült (keskin ama tırtıksız; masaüstü programlarının kullandığı yöntem)
     const src = x.getImageData(0, 0, c.width, c.height);
     const f = document.createElement("canvas"); f.width = W; f.height = H;
@@ -369,7 +419,7 @@
     if (busy || !items.length) return;
     busy = true; token++;
     $("#start").disabled = true; $("#zip").disabled = true; $("#share").disabled = true;
-    try { if ($("#model").value === "rmbg") await loadRmbg(); else { await loadLib(); await warm(); } } catch (e) { msg("Model yüklenemedi: " + e.message + " (internet bağlantısını kontrol et veya \"Eski motor\" seç)"); busy = false; $("#start").disabled = false; return; }
+    try { if ($("#model").value === "rmbg") await loadRmbg(); else { await loadLib(); await warm(); } await loadFace(); } catch (e) { msg("Model yüklenemedi: " + e.message + " (internet bağlantısını kontrol et veya \"Eski motor\" seç)"); busy = false; $("#start").disabled = false; return; }
     let done = 0;
     for (const it of items) {
       if (!it.cut) {
@@ -379,9 +429,11 @@
           const out = await cutout(src);
           it.cut = await createImageBitmap(out);
           it.info = analyze(it.cut);
+          try { it.face = await findFace(src); } catch (e) { console.warn("yüz", e); it.face = null; }
         } catch (e) { console.error(e); setSt(it, "hata", "er"); done++; prog(done / items.length); continue; }
       }
       await renderItem(it);
+      if (!it.face) it.el.querySelector(".st").textContent += " · yüz yok";
       done++; prog(done / items.length); msg(done + " / " + items.length + " tamamlandı");
     }
     busy = false; $("#start").disabled = false;
