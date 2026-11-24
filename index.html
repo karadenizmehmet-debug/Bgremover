@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.21.1">
+<meta name="version" content="3.21.2">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -154,7 +154,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21.2</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -289,6 +289,7 @@
     <textarea id="lstText" placeholder="Ya da buraya yapıştır: her satırda okul no ve ad soyad (ör. 1234 AHMET YILMAZ)"></textarea>
     <div class="row"><button class="btn sec" id="lstParse" type="button">Yapıştırılanı ekle</button><button class="btn sec" id="lstAdd" type="button">+ Öğrenci ekle</button></div>
     <div id="lstMsg"></div>
+    <details id="lstRawBox" hidden style="font-size:.75rem;color:#94a3b8;margin-top:4px"><summary>Okunan ham metin (sorun olursa ekran görüntüsü at)</summary><pre id="lstRaw" style="white-space:pre-wrap;max-height:30vh;overflow:auto"></pre></details>
     <div id="lstRows"></div>
     <div style="margin-top:10px"><select id="lstFmt" aria-label="Dosya adı biçimi">
       <option value="nsp">Dosya adı: 1234 AHMET YILMAZ.jpg</option>
@@ -1857,6 +1858,7 @@
   const HEAD = new Set(["SINIF", "SINIFI", "ŞUBESİ", "ŞUBE", "LİSTESİ", "LİSTE", "UİSTESİ", "TOPLAM", "SAYISI", "ÖĞRENCİ", "MÜDÜR", "MÜDÜRLÜĞÜ", "ORTAOKULU", "OKULU", "VALİLİĞİ", "ÖĞRETMENİ", "BAŞKANI"]);
   function parseLine(line) {
     const t = line.replace(/[|_;,\t]+/g, " ").replace(/\s+/g, " ").trim();
+    if (/say[ıi]s[ıi]|toplam|ö[ğg]renc|ö[ğg]re\b|s[ıi]n[ıi]f\s*(listesi|ö[ğg]retmeni)|müdür|e-?okul|\bk[ıi]z\s+ö/i.test(t)) return null;   // başlık / alt bilgi
     const m = /^((?:\d{1,6}[.)]?\s+)+)(.+)$/.exec(t); if (!m) return null;
     const nums = m[1].trim().split(/\s+/).map(x => x.replace(/\D/g, "")).filter(Boolean);
     const no = nums.length >= 2 ? nums[1] : nums[0];
@@ -1898,12 +1900,17 @@
   }
   // OCR öncesi: gri ton, ~3000 px genişlik, yerel eşikleme (gölge / ışık farkı gider) ve tablo çizgilerinin silinmesi
   // (yatay çizgiler harf sanılıp satıra "o", "z" gibi parazit ekliyordu)
-  async function ocrPrep(file) {
-    const bmp = await createImageBitmap(file);
-    let sc = 3000 / bmp.width; if (bmp.width * sc * bmp.height * sc > 16e6) sc = Math.sqrt(16e6 / (bmp.width * bmp.height));
-    const w = Math.round(bmp.width * sc), h = Math.round(bmp.height * sc);
+  // <img> ile açılır: telefon fotoğrafının EXIF yönü her tarayıcıda uygulanır (Firefox'ta createImageBitmap yan okuyabiliyor)
+  async function ocrImg(file) { const u = URL.createObjectURL(file), im = new Image(); im.src = u; try { await im.decode(); } finally { setTimeout(() => URL.revokeObjectURL(u), 5000); } return im; }
+  // rot: 0 / 90 / 270 — fotoğraf yan çekildiyse denenir
+  async function ocrPrep(src, rot = 0) {
+    const bw = rot ? src.naturalHeight : src.naturalWidth, bh = rot ? src.naturalWidth : src.naturalHeight;
+    let sc = 3000 / bw; if (bw * sc * bh * sc > 16e6) sc = Math.sqrt(16e6 / (bw * bh));
+    const w = Math.round(bw * sc), h = Math.round(bh * sc);
     const c = document.createElement("canvas"); c.width = w; c.height = h;
-    const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bmp, 0, 0, w, h); if (bmp.close) bmp.close();
+    const x = c.getContext("2d", { willReadFrequently: true });
+    x.save(); x.translate(w / 2, h / 2); x.rotate(rot * Math.PI / 180);
+    const dw = src.naturalWidth * sc, dh = src.naturalHeight * sc; x.drawImage(src, -dw / 2, -dh / 2, dw, dh); x.restore();
     const im = x.getImageData(0, 0, w, h), d = im.data, n = w * h, g = new Uint8Array(n);
     for (let i = 0; i < n; i++) g[i] = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8;
     const W1 = w + 1, ii = new Uint32Array(W1 * (h + 1));
@@ -1990,20 +1997,32 @@
     try {
       if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
       $("#lstMsg").textContent = "Fotoğraf hazırlanıyor...";
-      const c = await ocrPrep(f);
-      let pass = "";
+      const img = await ocrImg(f);
+      let c = await ocrPrep(img), pass = "";
       const w = await Tesseract.createWorker("tur", 1, { logger: m => { if (m.status === "recognizing text") $("#lstMsg").textContent = "Liste okunuyor" + pass + "... %" + Math.round(m.progress * 100); } });
       // iki okuma: blok (6) ve sütun (4) düzeni; sonuçlar ada göre birleştirilir, sıra no + okul no birlikte okunan tercih edilir
       const res = [];
-      for (const psm of ["6", "4"]) {
-        pass = psm === "6" ? " (1/2)" : " (2/2)";
-        await w.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" });
-        const { data } = await w.recognize(c); res.push(parseText(data.text));
+      const ham = [];
+      const oku = async (cv, psm) => { await w.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" }); const { data } = await w.recognize(cv); ham.push("— " + psm + " —\n" + data.text.replace(/ {2,}/g, " ")); return parseText(data.text); };
+      // güvenilir satır: sıra no + okul no ve en az iki kelimelik ad
+      const puan = L => L.filter(r => r.emin && r.name.split(" ").filter(x => x.length >= 3).length >= 2).length;
+      pass = " (1/2)"; res.push(await oku(c, "6"));
+      if (puan(res[0]) < 2) {
+        // neredeyse hiç satır çıkmadı: fotoğraf yan olabilir, iki yön de denenir, en çok satır veren alınır
+        for (const rot of [90, 270]) {
+          pass = " (yön " + rot + "°)";
+          const cr = await ocrPrep(img, rot), L = await oku(cr, "6");
+          if (puan(L) > puan(res[0])) { res[0] = L; c = cr; }
+        }
       }
+      pass = " (2/2)"; res.push(await oku(c, "4"));
       await w.terminate();
+      $("#lstRaw").textContent = ham.join("\n"); $("#lstRawBox").hidden = false;
       const by = new Map();
       for (const L of res) for (const r of L) { const k = r.name, o = by.get(k); if (!o || (!o.emin && r.emin)) by.set(k, r); }
-      const out = [...by.values()].sort((a, b) => (+a.no) - (+b.no));
+      let out = [...by.values()].sort((a, b) => (+a.no) - (+b.no));
+      // liste düzgün okunduysa (en az 3 güvenilir satır) yalnız tek sayılı ve kısa adlı parazit satırlar atılır
+      if (puan(out) >= 3) out = out.filter(r => r.emin || r.name.split(" ").filter(x => x.length >= 3).length >= 2);
       const unsure = out.filter(r => !r.emin).length;
       lstMerge(out.map(r => ({ no: r.no, name: r.name, kontrol: !r.emin })), "Fotoğraf");
       if (unsure) $("#lstMsg").textContent += " Sarı satırların numarasını kontrol et.";
