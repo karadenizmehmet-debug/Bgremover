@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.1.0
+// @version      0.2.0
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -83,6 +83,17 @@
   function acikOgrenciNo() {
     const sec = ogrenciSecimi();
     if (sec && sec.s.selectedIndex >= 0) { const o = sec.s.options[sec.s.selectedIndex]; const n = secenekNo(o.text); if (n && harfli(o.text)) return { no: n, kaynak: 'öğrenci seçimi: ' + o.text.trim() }; }
+    // e-Okul "Öğrenci Resim İşlemleri": Öğrenci Bilgileri bölümünde "Okul No" etiketi, yanındaki kutuda numara
+    for (const d of belgeler()) for (const el of d.querySelectorAll('td,th,span,label,div')) {
+      if (el.children.length > 2 || el.closest('#vf-panel') || !/^\s*(okul|öğrenci)\s*no\s*:?\s*$/i.test(el.textContent)) continue;
+      let n = el.nextElementSibling;
+      for (let k = 0; k < 3 && n; k++, n = n.nextElementSibling) {
+        const i = n.matches('input') ? n : n.querySelector('input');
+        const v = ((i ? i.value : n.textContent) || '').trim();
+        if (/^\d{1,6}$/.test(v)) return { no: v, kaynak: 'Okul No alanı' };
+        if (v) break;
+      }
+    }
     for (const d of belgeler()) {
       // "Okul No: 1234" / "Öğrenci No 1234" yazısı
       const t = (d.body ? d.body.innerText : '') || '';
@@ -129,9 +140,32 @@
     return out;
   }
   // e-Okul'daki Kaydet / Yükle düğmeleri (öğretmen basar; vurgulanır)
+  // simge düğmeler (araç çubuğundaki disket) için title / alt / id de okunur; sil / iptal asla seçilmez
+  const dugmeYazi = b => [b.value, b.textContent, b.title, b.alt, b.id, b.getAttribute && b.getAttribute('aria-label'), b.querySelector && b.querySelector('img') && (b.querySelector('img').title || b.querySelector('img').alt)].filter(Boolean).join(' ').trim();
   function kaydetDugmeleri() {
-    return belgeler().flatMap(d => [...d.querySelectorAll('input[type=submit],input[type=button],button,a')])
-      .filter(b => gorunur(b) && /kaydet|yükle|yukle|güncelle|guncelle/i.test((b.value || b.textContent || '').trim()));
+    return belgeler().flatMap(d => [...d.querySelectorAll('input[type=submit],input[type=button],input[type=image],button,a')])
+      .filter(b => gorunur(b) && !b.closest('#vf-panel') && /kaydet|yükle|yukle|güncelle|guncelle|save/i.test(dugmeYazi(b)) && !/sil|delete|iptal|vazgeç|vazgec/i.test(dugmeYazi(b)));
+  }
+  // "Sınıf Listesi" tablosu: başlığında "Okul No" olan tablo; her satırın başındaki sarı simgeyle öğrenci açılır
+  const hucreYazi = c => { let el = c; if (c.querySelector('table')) { el = c.cloneNode(true); el.querySelectorAll('table').forEach(t => t.remove()); } return el.textContent.trim().replace(/\s+/g, ' '); };
+  function listeSatirlari() {
+    let en = [];
+    for (const d of belgeler()) for (const t of d.querySelectorAll('table')) {
+      if (t.closest('#vf-panel')) continue;
+      let idx = -1, bas = null;
+      for (const r of t.rows) { const i = [...r.cells].findIndex(c => /^okul\s*no$/i.test(hucreYazi(c))); if (i >= 0 && r.cells.length > 2) { idx = i; bas = r; break; } }
+      if (idx < 0) continue;
+      const satir = [];
+      for (const r of t.rows) {
+        if (r === bas || r.cells.length <= idx || r.querySelector('table')) continue;
+        const no = hucreYazi(r.cells[idx]);
+        if (!/^\d{1,6}$/.test(no)) continue;
+        const tik = r.querySelector('input[type=image],a,img[onclick],[onclick]');
+        if (tik) satir.push({ tr: r, no, tik });
+      }
+      if (satir.length > en.length) en = satir;
+    }
+    return en;
   }
 
   // e-Okul masaüstü düzeni telefonda küçük görünür: panel yakınlaştırmadan bağımsız normal boyutta dursun
@@ -183,6 +217,7 @@
         <button class="vf-b ana" id="vf-yerlestir">Fotoğrafı yerleştir</button>
         <div class="vf-s" id="vf-durum" style="color:#0c4a6e;font-weight:600"></div>
         <button class="vf-b" id="vf-sonraki">Sonraki öğrenciye geç ▶</button>
+        <label class="vf-s" style="display:flex;gap:6px;align-items:flex-start;color:#1d2430"><input type="checkbox" id="vf-oto" style="margin-top:2px"> <span><b>Tam otomatik:</b> numarası doğrulanan öğrencide Kaydet’e de bas ve sıradakine geç. Durdurmak için işareti kaldır.</span></label>
         <div class="vf-s">Numara bulunamazsa fotoğrafı elle seç:</div>
         <select id="vf-elle"></select>
         <div class="vf-s" id="vf-tani"></div>
@@ -208,7 +243,7 @@
       sel.innerHTML = '<option value="">— seç —</option>' + (v ? v.fotolar.map((f, i) => `<option value="${i}">${y.has(f.no) ? '✓ ' : ''}${f.no} ${String(f.ad || '').replace(/[<>&"]/g, '')}</option>`).join('') : '');
       sel.value = eski;
       const sec = ogrenciSecimi(), acik = acikOgrenciNo();
-      $('#vf-tani').textContent = `Sayfada: ${dosyaKutulari().length} dosya kutusu · öğrenci seçimi ${sec ? 'var (' + sec.ops.length + ')' : 'yok'} · numara ${acik ? acik.kaynak : 'bulunamadı'}`;
+      $('#vf-tani').textContent = `Sayfada: ${dosyaKutulari().length} dosya kutusu · liste ${listeSatirlari().length} öğrenci · seçim kutusu ${sec ? sec.ops.length : 'yok'} · Kaydet ${kaydetDugmeleri().length} · numara ${acik ? acik.kaynak : 'bulunamadı'}`;
     }
     function ac() { ciz(); p.classList.add('acik'); }
 
@@ -258,10 +293,19 @@
       }
     }, true));
     // Sonraki öğrenci: öğrenci seçim kutusunda fotoğrafı olan ve henüz yüklenmemiş sıradaki öğrenci seçilir
-    $('#vf-sonraki').addEventListener('click', () => {
+    function sonraki() {
       const v = kayitli(), sec = ogrenciSecimi();
-      if (!sec) { durum('Bu sayfada öğrenci seçim kutusu bulunamadı. Sıradaki öğrenciyi e-Okul’dan açın; fotoğraf kendiliğinden yerleşir.'); return; }
       const y = yuklenenler(), var_ = new Set(v ? v.fotolar.map(f => f.no) : []);
+      const L = sec ? [] : listeSatirlari();
+      if (!sec && L.length) {
+        const acik = acikOgrenciNo(), bas = acik ? L.findIndex(r => r.no === acik.no) : -1;
+        for (let k = 1; k <= L.length; k++) {
+          const r = L[(bas + k + L.length) % L.length];
+          if (var_.has(r.no) && !y.has(r.no)) { durum('Açılıyor: ' + r.no + ' ' + (hucreYazi(r.tr.cells[2] || r.tr.cells[0]) || '')); r.tik.click(); return true; }
+        }
+        durum('Fotoğrafı olup yüklenmemiş öğrenci kalmadı. ✓'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return false;
+      }
+      if (!sec) { durum('Bu sayfada öğrenci listesi bulunamadı. Sınıfı seçip Listele’ye basın.'); return false; }
       const opts = [...sec.s.options];
       for (let k = 1; k <= opts.length; k++) {
         const o = opts[(sec.s.selectedIndex + k) % opts.length], n = secenekNo(o.text);
@@ -269,19 +313,40 @@
           sec.s.value = o.value;
           sec.s.dispatchEvent(new Event('change', { bubbles: true }));   // e-Okul sayfayı yeniler; fotoğraf yerleşir
           durum('Açılıyor: ' + o.text.trim());
-          return;
+          return true;
         }
       }
-      durum('Fotoğrafı olup yüklenmemiş öğrenci kalmadı. ✓');
-    });
-
-    // Sayfa açılınca: açık öğrencinin fotoğrafı varsa ve yüklenmediyse kendiliğinden kutuya koy (Kaydet'e öğretmen basar)
-    const v = kayitli(), acik = acikOgrenciNo();
-    if (v && acik && dosyaKutulari().length) {
-      ac();
-      const f = v.fotolar.find(x => x.no === acik.no);
-      if (f && !yuklenenler().has(f.no)) yerlestirFoto(f);
+      durum('Fotoğrafı olup yüklenmemiş öğrenci kalmadı. ✓'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return false;
     }
+    $('#vf-sonraki').addEventListener('click', sonraki);
+    $('#vf-oto').checked = !!GM_getValue('tamOto', false);
+    $('#vf-oto').addEventListener('change', e => { GM_setValue('tamOto', e.target.checked); GM_setValue('otoSon', ''); if (e.target.checked) otomatik(true); });
+
+    // Sayfa açılınca: açık öğrencinin fotoğrafı varsa ve yüklenmediyse kutuya koy.
+    // Tam otomatikte: numara yeniden doğrulanır, Kaydet'e basılır; sayfa yenilenince sıradaki öğrenci açılır.
+    // Bir şey yolunda gitmezse (kutu / Kaydet yok, numara değişti, aynı öğrenci tekrar geldi) durur ve yazar.
+    function otomatik(elle) {
+      const v = kayitli(), acik = acikOgrenciNo(), oto = !!GM_getValue('tamOto', false), son = GM_getValue('otoSon', '');
+      if (!v) return;
+      const f = acik && v.fotolar.find(x => x.no === acik.no);
+      if (oto && acik && son === acik.no && yuklenenler().has(acik.no)) {   // az önce kaydedilen öğrenci: sıradakine geç
+        GM_setValue('otoSon', ''); ac(); durum(acik.no + ' kaydedildi. Sıradaki açılıyor...'); setTimeout(sonraki, 900); return;
+      }
+      if (f && !yuklenenler().has(f.no) && dosyaKutulari().length) {
+        ac();
+        if (!yerlestirFoto(f) || !oto) return;
+        setTimeout(() => {
+          if (!GM_getValue('tamOto', false)) return;
+          const a2 = acikOgrenciNo(), k = kaydetDugmeleri()[0];
+          if (!a2 || a2.no !== f.no) { durum('Numara doğrulanamadı, otomatik durdu.'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return; }
+          if (!k) { durum('Kaydet düğmesi bulunamadı, otomatik durdu. Kaydet’e elle basın.'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return; }
+          yuklendi(f.no); GM_setValue('otoSon', f.no); k.click();
+        }, 1200);
+        return;
+      }
+      if (oto && (elle || !acik)) { ac(); sonraki(); }
+    }
+    otomatik(false);
   }
 
   // Panel yalnızca fotoğraf kutusu olan e-Okul sayfasında kendiliğinden açılır; menüden her zaman açılabilir
@@ -289,7 +354,7 @@
   const gozcu = new MutationObserver(() => { clearTimeout(zaman); zaman = setTimeout(dene, 700); });
   function dene() {
     if (document.getElementById('vf-panel')) { gozcu.disconnect(); return; }
-    if (dosyaKutulari().length) { paneliKur(); gozcu.disconnect(); }
+    if (dosyaKutulari().length || listeSatirlari().length || ogrenciSecimi()) { paneliKur(); gozcu.disconnect(); }
   }
   dene();
   if (!document.getElementById('vf-panel')) gozcu.observe(document.documentElement, { childList: true, subtree: true });
