@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.22.3">
+<meta name="version" content="3.23">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -158,7 +158,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.22.3</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.23</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -1388,16 +1388,38 @@
         if (Object.keys(m).length) camApply(m);
       }
     }
+    const hw = rows.length;
+    // Görüntü (yazılım) ayarları: her tarayıcıda çalışır, çekilen kareye uygulanır, önizlemede de görünür
+    const swRow = (key, label, min, max, fmt) => {
+      const d = document.createElement("div"); d.className = "cs";
+      d.innerHTML = "<span></span><input type=range><b></b>"; d.children[0].textContent = label;
+      const r = d.children[1], o = d.children[2]; r.min = min; r.max = max; r.step = 1; r.value = swAyar[key]; o.textContent = fmt(+r.value);
+      r.oninput = () => { swAyar[key] = +r.value; o.textContent = fmt(+r.value); swKaydet(); };
+      d.reset = () => { swAyar[key] = 0; r.value = 0; o.textContent = fmt(0); swKaydet(); };
+      rows.push(d);
+    };
+    const yuzde = v => (v > 0 ? "+" : "") + v + "%";
+    swRow("b", "Parlaklık", -40, 60, yuzde);
+    swRow("c", "Kontrast", -30, 40, yuzde);
+    swRow("t", "Sıcaklık", -30, 30, v => v > 0 ? "sıcak +" + v : v < 0 ? "soğuk " + v : "0");
     rows.forEach(d => box.appendChild(d));
+    if (hw) { const h = document.createElement("div"); h.style.cssText = "color:#64748b;font-size:.72rem;margin:2px 0 0"; h.textContent = "Üsttekiler kameranın kendi ayarları, alttaki üçü görüntü ayarı."; box.insertBefore(h, rows[hw]); }
     const n = document.createElement("div");
     n.style.cssText = "color:#94a3b8;font-size:.75rem;margin-top:4px";
-    n.textContent = (rows.length ? "" : "Bu kamera tarayıcıya ayar açmıyor. ") + (camFocusOk ? "Odaklamak için görüntüde yüze dokun." : "") + (caps.torch ? " Fener tahtada parlama yapabilir, gerekirse kapat." : "");
+    n.textContent = (hw ? "" : "Bu tarayıcı kameranın kendi ayarlarını (fener, pozlama, beyaz dengesi) açmıyor; bunlar Chrome'da var. Parlaklık / kontrast / sıcaklık çekime uygulanır. ") + (camFocusOk ? "Odaklamak için görüntüde yüze dokun." : "") + (caps.torch ? " Fener tahtada parlama yapabilir, gerekirse kapat." : "");
     box.appendChild(n);
-    if (rows.length) {
-      const b = document.createElement("button"); b.type = "button"; b.className = "btn sec"; b.textContent = "Varsayılana (otomatiğe) döndür";
-      b.onclick = () => rows.forEach(d => d.reset && d.reset()); box.appendChild(b);
-    }
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn sec"; b.textContent = "Varsayılana (otomatiğe) döndür";
+    b.onclick = () => rows.forEach(d => d.reset && d.reset()); box.appendChild(b);
   }
+  // yazılım görüntü ayarları (bu cihazda hatırlanır)
+  const swAyar = (() => { try { return Object.assign({ b: 0, c: 0, t: 0 }, JSON.parse(localStorage.getItem("bgr-goruntu") || "{}")); } catch (e) { return { b: 0, c: 0, t: 0 }; } })();
+  const swFiltre = () => "brightness(" + (1 + swAyar.b / 100) + ") contrast(" + (1 + swAyar.c / 100) + ")";
+  function swKaydet() {
+    try { localStorage.setItem("bgr-goruntu", JSON.stringify(swAyar)); } catch (e) {}
+    const t = swAyar.t / 100;   // önizleme: sıcaklık için hafif sepya / mavi kayma yaklaşık gösterilir
+    camV.style.filter = swFiltre() + (t > 0 ? " sepia(" + (t * 0.8) + ")" : t < 0 ? " hue-rotate(" + (t * 40) + "deg) saturate(" + (1 + t * 0.5) + ")" : "");
+  }
+  swKaydet();
   $("#camSetBtn").onclick = () => { $("#camSetBox").hidden = !$("#camSetBox").hidden; requestAnimationFrame(camGuide); };
   // dokunarak odaklama (ve ışık ölçümü o noktaya)
   camV.addEventListener("pointerdown", e => {
@@ -1443,7 +1465,15 @@
     const x = c.getContext("2d");
     if (rot === 90) { x.translate(0, w); x.rotate(-Math.PI / 2); }
     else if (rot === 270) { x.translate(h, 0); x.rotate(Math.PI / 2); }
+    if (swAyar.b || swAyar.c) x.filter = swFiltre();
     x.drawImage(camV, 0, 0, w, h);
+    x.filter = "none";
+    if (swAyar.t) {   // sıcaklık: kırmızıyı artır / maviyi azalt (ya da tersi)
+      x.setTransform(1, 0, 0, 1, 0, 0);
+      const id = x.getImageData(0, 0, c.width, c.height), d = id.data, k = swAyar.t / 100;
+      for (let i = 0; i < d.length; i += 4) { d[i] = d[i] * (1 + k * 0.5); d[i + 2] = d[i + 2] * (1 - k * 0.5); }
+      x.putImageData(id, 0, 0);
+    }
     return c;
   }
   const faceIn = c => { try { const r = landmarker.detect(c); return r.faceLandmarks && r.faceLandmarks[0] ? r : null; } catch (e) { return null; } };
