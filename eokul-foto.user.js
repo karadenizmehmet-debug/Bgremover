@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.4
+// @version      0.3.5
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -386,7 +386,8 @@
         durum('Fotoğrafı olup yüklenmemiş öğrenci kalmadı. ✓'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return false;
       }
       if (!sec && L.length) {
-        const acik = acikOgrenciNo(), bas = acik ? L.findIndex(r => r.no === acik.no) : -1;
+        // tablo sırasıyla baştan: fotoğrafı olup yüklenmemiş ilk öğrenci (eski dokunuş yüzünden öğrenci atlanmasın)
+        const bas = -1;
         for (let k = 1; k <= L.length; k++) {
           const r = L[(bas + k + L.length) % L.length];
           if (var_.has(r.no) && !y.has(r.no)) { kartSec({ no: r.no, ad: satirAd(r) }); durum('Açılıyor: ' + r.no + ' ' + satirAd(r)); r.tik.click(); return true; }
@@ -424,7 +425,7 @@
       belgeler().forEach(d => d.addEventListener('click', yakala, true));
     });
     $('#vf-oto').checked = !!GM_getValue('tamOto', false);
-    $('#vf-oto').addEventListener('change', e => { GM_setValue('tamOto', e.target.checked); GM_setValue('otoSon', ''); if (e.target.checked) otomatik(true); });
+    $('#vf-oto').addEventListener('change', e => { GM_setValue('tamOto', e.target.checked); GM_setValue('otoSon', ''); if (e.target.checked) { sonKart = null; GM_setValue('sonKart', 'null'); } if (e.target.checked) otomatik(true); });
 
     // Sayfa açılınca: açık öğrencinin fotoğrafı varsa ve yüklenmediyse kutuya koy.
     // Tam otomatikte: numara yeniden doğrulanır, Kaydet'e basılır; sayfa yenilenince sıradaki öğrenci açılır.
