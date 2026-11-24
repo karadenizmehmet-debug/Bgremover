@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.11">
+<meta name="version" content="3.12">
 <meta name="theme-color" content="#0f172a">
 <script>try{if(localStorage.getItem("bgr-tema")==="light")document.documentElement.setAttribute("data-theme","light")}catch(e){}</script>
 <title>e-Okul Fotoğraf Düzenleme Otomasyonu</title>
@@ -64,15 +64,39 @@
   :root[data-theme="light"] #ed{background:rgba(241,245,249,.97)}
   #temaDugme,.paylasBtn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;margin:-6px 0 -6px 8px;vertical-align:middle;border:1px solid var(--line);background:var(--card);color:var(--mut);border-radius:9px;cursor:pointer;font:inherit}
   #temaDugme svg,.paylasBtn svg{width:18px;height:18px;display:block}
+  /* uygulama içinden çekim */
+  #cam{position:fixed;inset:0;background:#020617;z-index:40;display:flex;align-items:center;justify-content:center;padding:10px;overflow:auto}
+  #cam[hidden]{display:none}
+  .cambox{width:100%;max-width:460px}
+  .camtop{margin-bottom:8px;flex-wrap:nowrap}
+  .camtop select{flex:1;min-width:0}
+  .camtop .btn{width:auto;padding:10px 14px}
+  #camCnt{color:var(--mut);font-size:.8rem;white-space:nowrap}
+  .camview{position:relative;display:table;margin:0 auto}
+  .camview[hidden]{display:none}
+  #camV{display:block;max-width:100%;max-height:62vh;border-radius:8px;background:#000}
+  #camV.mir{transform:scaleX(-1)}
+  #camC{display:block;max-width:100%;max-height:62vh;border-radius:6px;background:#fff}
+  .camguide{position:absolute;left:50%;top:50%;height:86%;aspect-ratio:133/171;max-width:96%;transform:translate(-50%,-50%);border:2px dashed rgba(56,189,248,.75);border-radius:8px;pointer-events:none}
+  .camguide::after{content:"";position:absolute;left:25%;width:50%;top:12%;height:52%;border:2px solid rgba(74,222,128,.7);border-radius:50%}
+  #camInfo{min-height:2.6em;font-size:.85rem;color:var(--txt)}
+  #camInfo.warn{color:#fbbf24}#camInfo.good{color:var(--ok)}
+  .shutter{display:block;margin:6px auto 0;width:74px;height:74px;border-radius:50%;border:5px solid #fff;background:var(--acc);cursor:pointer}
+  .shutter:disabled{opacity:.4}
+  #camName{width:100%;padding:10px;border-radius:10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;font:inherit;margin-top:4px}
+  #camRevBtns .row{margin-top:8px;flex-wrap:nowrap}
+  #camRevBtns .row .btn{flex:1;padding:12px}
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.11</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.12</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
-  <label class="btn" for="file">📷 Fotoğrafları seç (en fazla 40)</label>
+  <label class="btn" for="file">🖼 Fotoğrafları seç (en fazla 40)</label>
   <input id="file" type="file" accept="image/*" multiple hidden>
+  <div style="height:8px"></div>
+  <button class="btn sec" id="camBtn" type="button">📷 Uygulama içinden çek (tek tek kontrol ederek)</button>
   <div id="count" class="sub" style="margin:8px 0 0"></div>
 </section>
 
@@ -164,6 +188,21 @@
   </div>
 </div>
 
+<div id="cam" hidden>
+  <div class="cambox">
+    <div class="row camtop"><select id="camSel" aria-label="Kamera"></select><span id="camCnt"></span><button class="btn sec" id="camClose" type="button">Bitir</button></div>
+    <div class="camview" id="camLive"><video id="camV" playsinline muted autoplay></video><div class="camguide"></div></div>
+    <div class="camview" id="camRev" hidden><canvas id="camC" width="399" height="513"></canvas></div>
+    <div class="edhint" id="camInfo"></div>
+    <div id="camLiveBtns"><button class="shutter" id="camShot" type="button" aria-label="Çek"></button></div>
+    <div id="camRevBtns" hidden>
+      <input id="camName" type="text" placeholder="Ad / okul no (isteğe bağlı, dosya adı olur)" autocomplete="off">
+      <div class="row"><button class="btn sec" id="camRetake" type="button">↺ Tekrar çek</button><button class="btn sec" id="camEdit" type="button">✎ Düzenle</button></div>
+      <div class="row"><button class="btn" id="camNext" type="button">✓ Tamam, sonraki çekim</button></div>
+    </div>
+  </div>
+</div>
+
 <footer>Mehmet Karadeniz, 2026-2027</footer>
 
 <script>
@@ -193,6 +232,7 @@
 (() => {
   const $ = s => document.querySelector(s);
   const COLORS = [["Beyaz","#ffffff"],["Açık gri","#e5e7eb"],["Açık mavi","#bfdbfe"],["Mavi","#5b8dd6"],["Gri-mavi","#cbd5e1"]];
+  const cam = { on: false, proc: false, stream: null, track: null, it: null, seq: 0 };
   let bg = "#ffffff", items = [], removeBackground = null, preloadFn = null, cpuOnly = false, token = 0, busy = false;
 
   // ---------- renk seçimi ----------
@@ -238,16 +278,18 @@
     items.forEach(it => it.url && URL.revokeObjectURL(it.url));
     items = files.map(f => ({ file: f, name: f.name.replace(/\.[^.]+$/, "") + ".jpg", cut: null, info: null, blob: null, url: null, man: null }));
     const grid = $("#grid"); grid.innerHTML = "";
-    items.forEach((it, i) => {
-      const d = document.createElement("div"); d.className = "it";
-      d.innerHTML = '<div class="ph">⏳</div><div class="nm"></div><div class="st">bekliyor</div>';
-      d.querySelector(".nm").textContent = it.name; it.el = d; d.onclick = () => openEditor(it); grid.appendChild(d);
-    });
+    items.forEach(makeCell);
+    cam.seq = 0;
     $("#count").textContent = items.length + " fotoğraf seçildi";
     $("#start").disabled = !items.length; $("#zip").disabled = true; $("#share").disabled = true;
   };
 
-  function msg(t) { $("#msg").textContent = t; }
+  function makeCell(it) {
+    const d = document.createElement("div"); d.className = "it";
+    d.innerHTML = '<div class="ph">⏳</div><div class="nm"></div><div class="st">bekliyor</div>';
+    d.querySelector(".nm").textContent = it.name; it.el = d; d.onclick = () => openEditor(it); $("#grid").appendChild(d);
+  }
+  function msg(t) { $("#msg").textContent = t; if (cam.on && cam.proc) { const ci = $("#camInfo"); ci.className = "edhint"; ci.textContent = t; } }
   function prog(p) { $("#bar").style.display = "block"; $("#bar i").style.width = Math.round(p * 100) + "%"; }
   function setSt(it, t, cls) { it.el.className = "it " + (cls || ""); it.el.querySelector(".st").textContent = t; }
 
@@ -866,25 +908,32 @@
     }, 250);
   }
 
+  async function ensureModels() {
+    if ($("#model").value === "rmbg") await loadRmbg(); else { await loadLib(); await warm(); }
+    await loadFace();
+  }
+  // tek fotoğraf: arka planı sil, kişiyi ve yüzü ölç
+  async function processItem(it) {
+    const src = await prepare(it.file);
+    const out = await withTimeout(cutout(src), 90000);
+    it.cut = await createImageBitmap(out);
+    if ($("#fx_defringe").checked) { try { it.cut = await defringeBitmap(it.cut); } catch (e) { console.warn("kenar temizleme", e); } }
+    it.info = analyze(it.cut);
+    try { it.face = await withTimeout(findFace(src), 15000); } catch (e) { console.warn("yüz", e); it.face = null; }
+    it.lum = it.face ? faceLum(it) : 0;
+  }
+
   // ---------- toplu işlem ----------
   $("#start").onclick = async () => {
     if (busy || !items.length) return;
     busy = true; token++;
     $("#start").disabled = true; $("#zip").disabled = true; $("#share").disabled = true;
-    try { if ($("#model").value === "rmbg") await loadRmbg(); else { await loadLib(); await warm(); } await loadFace(); } catch (e) { msg("Model yüklenemedi: " + e.message + " (internet bağlantısını kontrol et veya \"Eski motor\" seç)"); busy = false; $("#start").disabled = false; return; }
+    try { await ensureModels(); } catch (e) { msg("Model yüklenemedi: " + e.message + " (internet bağlantısını kontrol et veya \"Eski motor\" seç)"); busy = false; $("#start").disabled = false; return; }
     let done = 0;
     for (const it of items) {
       if (!it.cut) {
         setSt(it, "işleniyor..."); msg((done + 1) + " / " + items.length + " işleniyor (" + ($("#model").value === "rmbg" ? rmDev : (cpuOnly ? "CPU" : "GPU")) + ")...");
-        try {
-          const src = await prepare(it.file);
-          const out = await withTimeout(cutout(src), 90000);
-          it.cut = await createImageBitmap(out);
-          if ($("#fx_defringe").checked) { try { it.cut = await defringeBitmap(it.cut); } catch (e) { console.warn("kenar temizleme", e); } }
-          it.info = analyze(it.cut);
-          try { it.face = await withTimeout(findFace(src), 15000); } catch (e) { console.warn("yüz", e); it.face = null; }
-          it.lum = it.face ? faceLum(it) : 0;
-        } catch (e) { console.error(e); setSt(it, "hata", "er"); done++; prog(done / items.length); continue; }
+        try { await processItem(it); } catch (e) { console.error(e); setSt(it, "hata", "er"); done++; prog(done / items.length); continue; }
       }
       await renderItem(it);
       if (!it.face && !landmarker) it.el.querySelector(".st").textContent += " · yüz modeli yok";
@@ -918,7 +967,10 @@
     $("#ed").hidden = false; document.body.style.overflow = "hidden";
     edDraw();
   }
-  function closeEditor() { $("#ed").hidden = true; document.body.style.overflow = ""; ed.it = null; ed.ptr.clear(); ed.prev = null; }
+  function closeEditor() {
+    $("#ed").hidden = true; if (!cam.on) document.body.style.overflow = ""; ed.it = null; ed.ptr.clear(); ed.prev = null;
+    const f = ed.onClose; ed.onClose = null; if (f) f();
+  }
   async function edCommit() {
     const it = ed.it, m = ed.man;
     if (!it) return;
@@ -968,6 +1020,111 @@
     if (!ed.it) return; e.preventDefault();
     ed.man.z = edClamp(ed.man.z * (e.deltaY < 0 ? 1.05 : 1 / 1.05), ZMIN, ZMAX); edSched();
   }, { passive: false });
+
+  // ---------- uygulama içinden çekim: çek, kontrol et, gerekirse tekrar çek / düzenle, sonrakine geç ----------
+  const camV = $("#camV"), camC = $("#camC");
+  function camStop() { if (cam.stream) cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; cam.track = null; camV.srcObject = null; }
+  function camCount() { $("#camCnt").textContent = items.length + " / 40"; }
+  function camInfo(t, cls) { const ci = $("#camInfo"); ci.className = "edhint" + (cls ? " " + cls : ""); ci.textContent = t; }
+  async function camStart(id) {
+    camStop();
+    const v = { width: { ideal: 1920 } };
+    if (id) v.deviceId = { exact: id }; else v.facingMode = { ideal: "environment" };
+    cam.stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
+    cam.track = cam.stream.getVideoTracks()[0];
+    camV.srcObject = cam.stream;
+    try { await camV.play(); } catch (e) {}
+    const st = cam.track.getSettings ? cam.track.getSettings() : {};
+    camV.classList.toggle("mir", st.facingMode === "user");           // ön kamera ayna gibi görünür, kayıt düz alınır
+    try { localStorage.setItem("bgr-kamera", st.deviceId || ""); } catch (e) {}
+    const sel = $("#camSel"), devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+    sel.innerHTML = "";
+    devs.forEach((d, i) => { const o = document.createElement("option"); o.value = d.deviceId; o.textContent = d.label || ("Kamera " + (i + 1)); sel.appendChild(o); });
+    if (st.deviceId) sel.value = st.deviceId;
+  }
+  function camLive() {
+    cam.it = null; $("#camLive").hidden = false; $("#camRev").hidden = true; $("#camLiveBtns").hidden = false; $("#camRevBtns").hidden = true;
+    $("#camShot").disabled = items.length >= 40; $("#camSel").disabled = false; camCount();
+    camInfo(items.length >= 40 ? "40 fotoğraf sınırına ulaşıldı. Bitir'e bas." : "Öğrenciyi kesik çizgili çerçeveye, yüzünü yeşil ovale getir ve çek.");
+  }
+  function camReview() {
+    const it = cam.it; if (!it) return camLive();
+    $("#camLive").hidden = true; $("#camRev").hidden = false; $("#camLiveBtns").hidden = true; $("#camRevBtns").hidden = false;
+    const x = camC.getContext("2d"); x.clearRect(0, 0, camC.width, camC.height); x.drawImage(render(it, camC.width, camC.height, undefined, true), 0, 0);
+    const w = warnsOf(it), kb = it.blob ? Math.round(it.blob.size / 1024) + " KB" : "";
+    if (w.length) camInfo("⚠ " + w.join(", ") + " · " + kb + " — tekrar çekmen önerilir.", "warn");
+    else camInfo("✓ Sorun görünmüyor · " + kb + (it.man ? " · elle düzeltildi" : ""), "good");
+    camCount();
+  }
+  function camRemove(it) {
+    const i = items.indexOf(it); if (i < 0) return;
+    items.splice(i, 1); if (it.url) URL.revokeObjectURL(it.url); if (it.el) it.el.remove();
+    updateGains(); updateWarnBox();
+  }
+  function camAfter() {
+    const ok = items.filter(i => i.blob).length;
+    $("#zip").disabled = !ok; $("#share").disabled = !ok; $("#start").disabled = !items.length;
+    $("#count").textContent = items.length + " fotoğraf";
+  }
+  $("#camBtn").onclick = async () => {
+    if (busy) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { msg("Bu tarayıcı kamera erişimini desteklemiyor."); return; }
+    cam.on = true; $("#cam").hidden = false; document.body.style.overflow = "hidden";
+    camLive(); camInfo("Kamera açılıyor...");
+    let saved = ""; try { saved = localStorage.getItem("bgr-kamera") || ""; } catch (e) {}
+    try { await camStart(saved); }
+    catch (e) {
+      try { await camStart(""); } catch (e2) { camInfo("Kamera açılamadı: " + (e2.message || e2.name) + " (kamera iznini kontrol et)", "warn"); return; }
+    }
+    camLive();
+    ensureModels().catch(e => console.warn("model ön yükleme", e));    // ilk çekim beklemesin diye modeller şimdiden hazırlanır
+  };
+  $("#camSel").onchange = async e => { try { await camStart(e.target.value); camLive(); } catch (er) { camInfo("Bu kamera açılamadı: " + (er.message || er.name), "warn"); } };
+  $("#camShot").onclick = async () => {
+    if (cam.proc || busy || !cam.track || items.length >= 40) return;
+    const vw = camV.videoWidth, vh = camV.videoHeight; if (!vw || !vh) return;
+    cam.proc = true; busy = true; token++;
+    $("#camShot").disabled = true; $("#camSel").disabled = true;
+    const c = document.createElement("canvas"); c.width = vw; c.height = vh; c.getContext("2d").drawImage(camV, 0, 0, vw, vh);
+    // çekilen kare işlenirken ekranda dondurulmuş görünür
+    $("#camLive").hidden = true; $("#camRev").hidden = false;
+    { const x = camC.getContext("2d"), s = Math.max(camC.width / vw, camC.height / vh); x.fillStyle = "#000"; x.fillRect(0, 0, camC.width, camC.height); x.drawImage(c, (camC.width - vw * s) / 2, (camC.height - vh * s) / 2, vw * s, vh * s); }
+    camInfo("İşleniyor...");
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.95));
+    const n = ++cam.seq, name = "cekim_" + String(n).padStart(2, "0") + ".jpg";
+    const it = { file: new File([blob], name, { type: "image/jpeg" }), name, cut: null, info: null, blob: null, url: null, man: null };
+    items.push(it); makeCell(it); setSt(it, "işleniyor...");
+    try {
+      await ensureModels();
+      await processItem(it);
+      await renderItem(it);
+      cam.it = it; $("#camName").value = "";
+    } catch (e) {
+      console.error(e); camRemove(it); cam.seq--;
+      cam.proc = false; busy = false; camLive(); camInfo("İşlenemedi: " + (e.message || e) + " — tekrar çek.", "warn"); camAfter(); return;
+    }
+    cam.proc = false; busy = false; camAfter(); camReview();
+  };
+  $("#camRetake").onclick = () => {
+    const it = cam.it; if (!it) return camLive();
+    if (it.file.name === "cekim_" + String(cam.seq).padStart(2, "0") + ".jpg") cam.seq--;   // numara boşa gitmesin
+    camRemove(it); camAfter(); camLive();
+  };
+  $("#camName").oninput = e => {
+    const it = cam.it; if (!it) return;
+    const v = e.target.value.trim().replace(/[\\/:*?"<>|]+/g, "_").replace(/\.jpe?g$/i, "");
+    it.name = v ? v + ".jpg" : it.file.name;
+    it.el.querySelector(".nm").textContent = it.name;
+  };
+  $("#camEdit").onclick = () => { if (!cam.it) return; ed.onClose = camReview; openEditor(cam.it); };
+  $("#camNext").onclick = camLive;
+  $("#camClose").onclick = () => {
+    if (cam.proc) return;
+    camStop(); cam.on = false; cam.it = null; $("#cam").hidden = true; document.body.style.overflow = ""; camAfter();
+    const ok = items.filter(i => i.blob).length;
+    if (ok) msg(ok + " fotoğraf hazır. Kadrajı elle düzeltmek için fotoğrafa dokun, sonra ZIP olarak indir.");
+  };
+  document.addEventListener("visibilitychange", () => { if (document.hidden && cam.on && !cam.proc) camStop(); else if (!document.hidden && cam.on && !cam.stream) camStart(cam.track ? "" : (() => { try { return localStorage.getItem("bgr-kamera") || ""; } catch (e) { return ""; } })()).then(() => { if (!cam.it) camLive(); }).catch(() => {}); });
 
   // ---------- ZIP (sıkıştırmasız) ----------
   const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
