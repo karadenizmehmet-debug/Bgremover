@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.15">
+<meta name="version" content="3.16">
 <meta name="theme-color" content="#0f172a">
 <script>try{if(localStorage.getItem("bgr-tema")==="light")document.documentElement.setAttribute("data-theme","light")}catch(e){}</script>
 <title>e-Okul Fotoğraf Düzenleme Otomasyonu</title>
@@ -116,7 +116,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.15</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.16</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -1098,6 +1098,11 @@
   function camSettings(caps, st) {
     const box = $("#camSetBox"); box.innerHTML = "";
     const sv = csLoad(), rows = [];
+    cam.auto = sv.auto !== false; cam.ctl = {}; cam.caps = caps;
+    cam.ec = st.exposureCompensation || 0; cam.aeT = 0; cam.poi = null; cam.poiT = 0;
+    // elle bir ayar değişince otomatik kapanır (kullanıcının seçimi ezilmesin)
+    const autoOff = () => { if (!cam.auto) return; cam.auto = false; csSave("auto", false); if (autoSel) autoSel.value = "0"; };
+    let autoSel = null;
     const slider = (key, label, fmt, save) => {
       const c = caps[key]; if (!c || !(c.max > c.min)) return;
       const d = document.createElement("div"); d.className = "cs";
@@ -1106,17 +1111,20 @@
       const r = d.children[1], o = d.children[2];
       r.min = c.min; r.max = c.max; r.step = c.step || (c.max - c.min) / 100;
       let v = st[key] != null ? st[key] : (c.min + c.max) / 2;
-      if (save && sv[key] != null && sv[key] >= c.min && sv[key] <= c.max) { v = sv[key]; camApply({ [key]: v }); }
+      if (save && !cam.auto && sv[key] != null && sv[key] >= c.min && sv[key] <= c.max) { v = sv[key]; camApply({ [key]: v }); }
+      if (cam.auto && key === "exposureCompensation") { v = 0; camApply({ exposureCompensation: 0 }); }
       r.value = v; o.textContent = fmt(+v); r.dataset.def = key === "exposureCompensation" ? 0 : (st[key] != null ? st[key] : v);
-      r.oninput = () => { o.textContent = fmt(+r.value); camApply({ [key]: +r.value }); if (save) csSave(key, +r.value); };
-      d.reset = () => { r.value = r.dataset.def; o.textContent = fmt(+r.value); camApply({ [key]: +r.value }); csSave(key, null); };
+      r.oninput = () => { autoOff(); o.textContent = fmt(+r.value); camApply({ [key]: +r.value }); if (save) csSave(key, +r.value); if (key === "exposureCompensation") cam.ec = +r.value; };
+      d.reset = () => { r.value = r.dataset.def; o.textContent = fmt(+r.value); camApply({ [key]: +r.value }); csSave(key, null); if (key === "exposureCompensation") cam.ec = +r.value; };
+      cam.ctl[key] = v2 => { r.value = v2; o.textContent = fmt(+v2); };
       rows.push(d);
     };
     if (caps.torch) {
       const d = document.createElement("div"); d.className = "cs";
       d.innerHTML = '<span>Fener (ışık)</span><select><option value="0">Kapalı</option><option value="1">Açık</option></select>';
       const sl = d.querySelector("select"); sl.value = st.torch ? "1" : "0";
-      sl.onchange = () => camApply({ torch: sl.value === "1" });
+      sl.onchange = () => camApply({ torch: sl.value === "1" });   // fener otomatiği kapatmaz: karanlıkta açıp otomatik pozlamayla birlikte kullanılabilir
+      cam.ctl.torch = on => { sl.value = on ? "1" : "0"; camApply({ torch: on }); };
       d.reset = () => { sl.value = "0"; camApply({ torch: false }); };
       rows.push(d);
     }
@@ -1129,22 +1137,39 @@
       slider("colorTemperature", "Renk sıcaklığı", v => Math.round(v) + "K", true);
       const tr = rows[rows.length - 1];
       const setMode = m => { sl.value = m; tr.hidden = m !== "manual"; camApply(m === "manual" ? { whiteBalanceMode: "manual", colorTemperature: +tr.querySelector("input").value } : { whiteBalanceMode: wbm.includes("continuous") ? "continuous" : wbm[0] }); csSave("wb", m === "manual" ? "manual" : null); };
-      sl.onchange = () => setMode(sl.value);
+      sl.onchange = () => { autoOff(); setMode(sl.value); };
       d.reset = () => setMode("continuous");
-      setMode(sv.wb === "manual" ? "manual" : "continuous");
+      setMode(!cam.auto && sv.wb === "manual" ? "manual" : "continuous");
     }
     slider("brightness", "Parlaklık", v => String(Math.round(v)), true);
     slider("contrast", "Kontrast", v => String(Math.round(v)), true);
     slider("saturation", "Renk doygunluğu", v => String(Math.round(v)), true);
     slider("sharpness", "Keskinlik", v => String(Math.round(v)), true);
     camFocusOk = !!(caps.focusMode && caps.focusMode.includes("single-shot")) || "pointsOfInterest" in (cam.track.getSettings ? cam.track.getSettings() : {});
+    // otomatik ayar: kamera kendi pozlama / beyaz dengesi / odağında kalır, uygulama yüze göre pozlamayı ince ayarlar ve yüze odaklar
+    if (caps.exposureCompensation || camFocusOk || caps.pointsOfInterest) {
+      const d = document.createElement("div"); d.className = "cs";
+      d.innerHTML = '<span>Otomatik ayar</span><select><option value="1">Açık (önerilen)</option><option value="0">Kapalı (elle)</option></select>';
+      autoSel = d.querySelector("select"); autoSel.value = cam.auto ? "1" : "0";
+      autoSel.onchange = () => {
+        cam.auto = autoSel.value === "1"; csSave("auto", cam.auto ? null : false);
+        if (cam.auto) { rows.forEach(x => x !== d && x.reset && x.reset()); cam.aeT = 0; }
+      };
+      d.reset = () => { autoSel.value = "1"; cam.auto = true; csSave("auto", null); cam.aeT = 0; };
+      rows.unshift(d);
+      if (cam.auto) {
+        const m = (caps.exposureMode || []).includes("continuous") ? { exposureMode: "continuous" } : {};
+        if ((caps.focusMode || []).includes("continuous")) m.focusMode = "continuous";
+        if (Object.keys(m).length) camApply(m);
+      }
+    }
     rows.forEach(d => box.appendChild(d));
     const n = document.createElement("div");
     n.style.cssText = "color:#94a3b8;font-size:.75rem;margin-top:4px";
     n.textContent = (rows.length ? "" : "Bu kamera tarayıcıya ayar açmıyor. ") + (camFocusOk ? "Odaklamak için görüntüde yüze dokun." : "") + (caps.torch ? " Fener tahtada parlama yapabilir, gerekirse kapat." : "");
     box.appendChild(n);
     if (rows.length) {
-      const b = document.createElement("button"); b.type = "button"; b.className = "btn sec"; b.textContent = "Varsayılana döndür";
+      const b = document.createElement("button"); b.type = "button"; b.className = "btn sec"; b.textContent = "Varsayılana (otomatiğe) döndür";
       b.onclick = () => rows.forEach(d => d.reset && d.reset()); box.appendChild(b);
     }
   }
@@ -1213,6 +1238,7 @@
       liveOk = ok;
     };
     if (!r) return show(false, "Yüz aranıyor...");
+    const env = camAuto(r, c, rot);
     // dik (döndürülmüş) karede, çerçeve kare ortasında: boyutu ekrandaki çerçeveden video pikseline çevrilir
     const L = r.faceLandmarks[0], s = (vr.width / vw) / (c.width / (rot ? vh : vw));   // ekran pikseli / küçük kare pikseli
     const gw = parseFloat(g.style.width) / s, gh = parseFloat(g.style.height) / s, W = c.width, H = c.height;
@@ -1237,10 +1263,46 @@
     if (Math.abs(yaw) > 0.2) h.push("kameraya düz baksın");
     if ((bs("eyeBlinkLeft") + bs("eyeBlinkRight")) / 2 > 0.5) h.push("gözler kapalı");
     if (bs("jawOpen") > 0.35) h.push("ağzını kapatsın");
+    if (env) h.push(env);
     if (!h.length) return show(true, "✓ Uygun, çek");
     const t = h.join(", "); show(false, "⚠ " + t.charAt(0).toUpperCase() + t.slice(1));
   }
   setInterval(liveCheck, 250);
+
+  // Otomatik ayar: yüzün ortalama parlaklığı hedefe (≈135/255) gelene kadar pozlama telafisi adım adım değiştirilir,
+  // yanmış (beyaza dönmüş) cilt varsa kısılır; odak ve ışık ölçümü yüzün ortasına alınır. Karanlıkta fener önerilir.
+  function camAuto(r, c, rot) {
+    if (!cam.auto || !cam.track) return "";
+    const L = r.faceLandmarks[0], W = c.width, H = c.height, now = performance.now();
+    const e = [(L[33].x + L[133].x + L[362].x + L[263].x) / 4, (L[33].y + L[133].y + L[362].y + L[263].y) / 4], ch = [L[152].x, L[152].y];
+    const ec = Math.hypot((ch[0] - e[0]) * W, (ch[1] - e[1]) * H);
+    const x0 = Math.max(0, Math.round(e[0] * W - 0.45 * ec)), x1 = Math.min(W, Math.round(e[0] * W + 0.45 * ec));
+    const y0 = Math.max(0, Math.round(e[1] * H - 0.2 * ec)), y1 = Math.min(H, Math.round(e[1] * H + 0.9 * ec));
+    if (x1 - x0 < 6 || y1 - y0 < 6) return "";
+    const d = c.getContext("2d", { willReadFrequently: true }).getImageData(x0, y0, x1 - x0, y1 - y0).data;
+    let sum = 0, n = 0, hot = 0;
+    for (let i = 0; i < d.length; i += 8) { const v = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; sum += v; n++; if (v > 248) hot++; }
+    const lum = sum / n, clip = hot / n, cap = cam.caps && cam.caps.exposureCompensation;
+    if (cap && now - cam.aeT > 700) {
+      cam.aeT = now;
+      let step = 0;
+      if (clip > 0.05) step = -0.3;
+      else if (Math.abs(135 - lum) > 14) step = Math.max(-0.5, Math.min(0.5, (135 - lum) / 70));
+      if (step) {
+        const q = cap.step || 0.1, v = Math.min(cap.max, Math.max(cap.min, Math.round((cam.ec + step) / q) * q));
+        if (Math.abs(v - cam.ec) >= q / 2) { cam.ec = v; camApply({ exposureCompensation: v }); if (cam.ctl.exposureCompensation) cam.ctl.exposureCompensation(v); }
+      }
+    }
+    // yüz ortası, döndürülmemiş video koordinatına çevrilir
+    const fx = e[0], fy = (e[1] + ch[1]) / 2;
+    const p = rot === 90 ? { x: 1 - fy, y: fx } : rot === 270 ? { x: fy, y: 1 - fx } : { x: fx, y: fy };
+    if (camFocusOk && now - cam.poiT > 1500 && (!cam.poi || Math.hypot(p.x - cam.poi.x, p.y - cam.poi.y) > 0.06)) {
+      cam.poiT = now; cam.poi = p; camApply({ pointsOfInterest: [p] });
+    }
+    if (lum < 85 && (!cap || cam.ec >= cap.max - 0.01)) return cam.caps && cam.caps.torch ? "ortam karanlık: ışığa yaklaşın ya da ⚙'den feneri açın" : "ortam karanlık: ışığa yaklaşın";
+    if (clip > 0.12 && (!cap || cam.ec <= cap.min + 0.01)) return "yüze çok güçlü ışık geliyor, biraz yer değiştirin";
+    return "";
+  }
   // Kılavuz çerçeve her zaman e-Okul oranında (133:171). Telefon yan tutulup ekran dönmediyse çerçeve de 90° döner (üstü gerçek yukarıyı gösterir).
   function camGuide() {
     const r = camV.getBoundingClientRect(), g = document.querySelector(".camguide");
