@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.20">
+<meta name="version" content="3.21">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -153,7 +153,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.20</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -237,6 +237,9 @@
   <label class="chk" style="display:flex;gap:8px;align-items:center;margin:8px 0 0;font-size:.85rem"><input type="checkbox" id="zipOrig"> Orijinal (işlenmemiş) fotoğrafları da ZIP'e ekle (orijinal klasörü)</label>
   <div style="height:8px"></div>
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
+  <div style="height:8px"></div>
+  <button class="btn sec" id="eoBtn" type="button">🏫 e-Okul'a gönder (okul numarasına göre)</button>
+  <div class="sub" id="eoInfo" style="margin:6px 0 0"></div>
   <div style="height:8px"></div>
   <button class="btn sec" id="clear" type="button">🗑 Listeyi temizle (yeni sınıf)</button>
   <div class="sub" id="saveInfo" style="margin:8px 0 0">Çekimler ve düzenlemeler bu telefonda saklanır; sayfa kapansa da kaybolmaz.</div>
@@ -1954,6 +1957,45 @@
     } catch (er) { console.error(er); $("#lstMsg").textContent = "Okunamadı: " + (er.message || er) + " (internet gerekli ilk seferde)"; }
   };
   lstBtnTxt();
+
+  // ---------- e-Okul yardımcısı (Tampermonkey betiği eokul-foto.user.js) ile konuşma ----------
+  // Fotoğraflar aynı sayfa içinde betiğe verilir, hiçbir sunucuya gönderilmez. Betik e-Okul'da açık öğrencinin
+  // fotoğraf kutusuna okul numarasına göre koyar; Kaydet'e öğretmen basar.
+  let eoHelper = null;
+  const eoSay = o => window.postMessage(JSON.stringify(o), location.origin);
+  const eoNo = it => it.stu || ((/^(\d{1,6})(?=[ _.]|$)/.exec(it.name) || [])[1] || "");
+  function eoTxt(t) {
+    const e = $("#eoInfo");
+    if (t) { e.textContent = t; return; }
+    const n = items.filter(i => i.blob && eoNo(i)).length;
+    e.innerHTML = eoHelper
+      ? "e-Okul yardımcısı kurulu (v" + String(eoHelper.surum).replace(/[<>&"]/g, "") + "). Okul numaralı " + n + " fotoğraf gönderilebilir."
+      : 'e-Okul yardımcısı bu tarayıcıda yok: <a href="eokul-foto.user.js">kur</a> (Firefox + Tampermonkey, Not Giriş’teki gibi). Başka tarayıcıdaysan ZIP’i indir, e-Okul’daki 📷 Fotoğraf panelinden “ZIP’ten al”.';
+  }
+  window.addEventListener("message", e => {
+    if (e.origin !== location.origin || typeof e.data !== "string" || !e.data.startsWith('{"vfY"')) return;
+    let m; try { m = JSON.parse(e.data); } catch (er) { return; }
+    if (m.vfY === "durum") { eoHelper = { surum: m.surum }; eoTxt(); }
+    if (m.vfY === "gonderildi") { eoTxt("✓ " + m.adet + " fotoğraf e-Okul yardımcısına verildi. e-Okul’da öğrencinin fotoğraf ekranını açınca kendiliğinden yerleşir; Kaydet’e sen basarsın."); }
+  });
+  $("#eoBtn").onclick = async () => {
+    if (busy) return;
+    const list = items.filter(i => i.blob && eoNo(i));
+    if (!list.length) { eoTxt("Okul numarası olan fotoğraf yok. Sınıf listesiyle çekim yap ya da dosya adını numarayla başlat (ör. 1234 AHMET YILMAZ)."); return; }
+    if (!eoHelper) { eoTxt(); return; }
+    const noAd = items.filter(i => i.blob && !eoNo(i)).length;
+    const fotolar = [];
+    for (const it of list) {
+      const u = new Uint8Array(await it.blob.arrayBuffer()); let b = "";
+      for (let k = 0; k < u.length; k += 0x8000) b += String.fromCharCode.apply(null, u.subarray(k, k + 0x8000));
+      fotolar.push({ no: eoNo(it), ad: it.name.replace(/\.jpg$/i, "").replace(/^\d{1,6}[ _-]*/, "").replace(/_/g, " "), cls: it.cls || "", dosya: it.name, b64: btoa(b) });
+    }
+    eoSay({ vfU: "gonder", fotolar });
+    if (noAd) msg(noAd + " fotoğrafın okul numarası olmadığı için gönderilmedi.");
+  };
+  eoSay({ vfU: "sor" });
+  setTimeout(() => { if (!eoHelper) eoTxt(); }, 800);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) eoSay({ vfU: "sor" }); });
 
   // ---------- listeyi temizle ----------
   $("#clear").onclick = async () => {
