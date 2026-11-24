@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.22.2">
+<meta name="version" content="3.22.3">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -158,7 +158,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.22.2</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.22.3</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -1288,7 +1288,9 @@
     try { return await withTimeout(p, 8000); } catch (e) { late = true; throw e; }
   }
   async function camStart(id, basit) {
+    const vardi = !!cam.stream;
     camStop();
+    if (vardi) await new Promise(r => setTimeout(r, 400));   // Firefox (Android) eski kamerayı bırakmadan yenisini açamıyor: "Starting videoinput failed"
     const v = basit ? {} : { width: { ideal: 2560 }, height: { ideal: 1920 } };   // 4:3, kameranın verebildiği en yüksek çözünürlüğe yakın (işleme zaten 2048 px'e indirir)
     if (id) v.deviceId = { exact: id }; else v.facingMode = { ideal: "environment" };
     cam.stream = await gum({ video: v, audio: false });
@@ -1707,7 +1709,7 @@
   async function camOpenTry() {
     let saved = ""; try { saved = localStorage.getItem("bgr-kamera") || ""; } catch (e) {}
     let err = null;
-    const denemeler = (saved ? [[saved, false]] : []).concat([["", false], ["", true]]);
+    const denemeler = (saved ? [[saved, false], [saved, true]] : []).concat([["", false], ["", true]]);
     for (const [k, [id, basit]] of denemeler.entries()) {
       if (k) camInfo("Kamera açılıyor... (" + (k + 1) + ". deneme)");
       try { await camStart(id, basit); return true; } catch (e) { err = e; console.warn("kamera", id, basit, e); if (e && e.name === "NotAllowedError") break; }
@@ -1725,7 +1727,15 @@
     cam.replace = null; camAfter();
   }
   $("#camBtn").onclick = () => openCam(null);
-  $("#camSel").onchange = async e => { try { await camStart(e.target.value); camLive(); } catch (er) { camInfo("Bu kamera açılamadı: " + (er.message || er.name), "warn"); } };
+  // kamera değiştir: önce yüksek çözünürlük, olmazsa çözünürlük istemeden (Firefox bazı kameralarda yüksek çözünürlükte açamıyor)
+  $("#camSel").onchange = async e => {
+    const id = e.target.value; camInfo("Kamera değiştiriliyor...");
+    let err = null;
+    for (const basit of [false, true]) { try { await camStart(id, basit); camLive(); return; } catch (er) { err = er; } }
+    camInfo("Bu kamera açılamadı (" + ((err && (err.message || err.name)) || "hata") + "). Başka kamera seç; arka kamerayla açılıyor...", "warn");
+    try { localStorage.removeItem("bgr-kamera"); } catch (er) {}
+    if (await camOpenTry()) camLive();
+  };
   $("#camShot").onclick = async () => {
     if (cam.retry && !cam.track) { cam.retry = false; camInfo("Kamera açılıyor..."); if (await camOpenTry()) { camLive(); loadFace().catch(() => {}); } return; }
     const rep = cam.replace;
