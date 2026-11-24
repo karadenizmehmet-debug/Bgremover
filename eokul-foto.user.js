@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.5
+// @version      0.3.6
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -203,12 +203,13 @@
     return null;
   }
   function kaydetDugmeleri() {
-    const t = tanitilanKaydet(); if (t) return [t];
+    const satirlar = listeSatirlari().map(r => r.tr), listede = b => satirlar.some(tr => tr.contains(b));
+    const t = tanitilanKaydet(); if (t && !listede(t)) return [t];
     const adres = belgeler().flatMap(d => [...d.querySelectorAll('a,input[type=image],img[onclick],button')])
-      .filter(b => gorunur(b) && !b.closest('#vf-panel') && /save|kaydet|disk/i.test(simgeAdres(b)) && !/sil|delete|iptal|cancel/i.test(simgeAdres(b) + ' ' + dugmeYazi(b)));
+      .filter(b => gorunur(b) && !b.closest('#vf-panel') && !listede(b) && /save|kaydet|disk/i.test(simgeAdres(b)) && !/sil|delete|iptal|cancel/i.test(simgeAdres(b) + ' ' + dugmeYazi(b)));
     if (adres.length) return adres.map(b => (b.matches('img') && b.closest('a')) || b);
     return belgeler().flatMap(d => [...d.querySelectorAll('input[type=submit],input[type=button],input[type=image],button,a')])
-      .filter(b => gorunur(b) && !b.closest('#vf-panel') && /kaydet|yükle|yukle|güncelle|guncelle|save/i.test(dugmeYazi(b)) && !/sil|delete|iptal|vazgeç|vazgec/i.test(dugmeYazi(b)));
+      .filter(b => gorunur(b) && !b.closest('#vf-panel') && !listede(b) && /kaydet|yükle|yukle|güncelle|guncelle|save/i.test(dugmeYazi(b)) && !/sil|delete|iptal|vazgeç|vazgec/i.test(dugmeYazi(b)));
   }
   // "Sınıf Listesi" tablosu: başlığında "Okul No" olan tablo; her satırın başındaki sarı simgeyle öğrenci açılır
   const hucreYazi = c => { let el = c; if (c.querySelector('table')) { el = c.cloneNode(true); el.querySelectorAll('table').forEach(t => t.remove()); } return el.textContent.trim().replace(/\s+/g, ' '); };
@@ -354,17 +355,40 @@
     });
     // Kaydet / Yükle'ye basılınca o öğrenci yüklendi sayılır
     // kart listesinde dokunulan kartı hatırla (düzenle simgesine basınca açılan pencere o öğrencinin)
+    // Hafif tutulur: e-Okul'un kendi tıklamasını bekletmemek için iş tıklamadan sonra yapılır, yalnız dokunulan satıra/karta bakılır.
     belgeler().forEach(d => d.addEventListener('click', e => {
-      if (!e.isTrusted || !e.target.closest || e.target.closest('#vf-panel')) return;
-      const k = kartlar().find(x => x.kart.contains(e.target));
-      if (k) { kartSec(k); return; }
-      // "Sınıf Listesi" tablosunda dokunulan satır (sarı klasör simgesi)
-      const r = listeSatirlari().find(x => x.tr.contains(e.target));
-      if (r) kartSec({ no: r.no, ad: satirAd(r) });
+      const t = e.target;
+      if (!e.isTrusted || !t || !t.closest || t.closest('#vf-panel')) return;
+      setTimeout(() => {
+        try {
+          // "Sınıf Listesi" tablosunda dokunulan satır (sarı klasör simgesi): aynı tablonun "Okul No" sütunu
+          const tr = t.closest('tr'), tablo = tr && tr.closest('table');
+          if (tr && tablo) {
+            for (const r of tablo.rows) {
+              const i = [...r.cells].findIndex(c => /^okul\s*no$/i.test(hucreYazi(c)));
+              if (i < 0) continue;
+              const no = tr.cells[i] ? hucreYazi(tr.cells[i]) : '';
+              if (/^\d{1,6}$/.test(no)) kartSec({ no, ad: satirAd({ tr }) });
+              return;
+            }
+          }
+          // kart düzeni: dokunulan öğenin 8 atası içinde "1-ARDA ÇAMLI" başlığı
+          let el = t;
+          for (let k = 0; k < 8 && el && el.tagName !== 'BODY'; k++, el = el.parentElement) {
+            const tc = el.textContent || '';
+            if (tc.length > 400) break;
+            const m = /(?:^|\s)(\d{1,6})\s*[-–]\s*([A-ZÇĞİÖŞÜ]{2,}(?:\s+[A-ZÇĞİÖŞÜ]{2,})+)/.exec(kartYazi(el));
+            if (m) { kartSec({ no: m[1], ad: m[2] }); return; }
+          }
+        } catch (er) { /* sayfayı bozmasın */ }
+      }, 0);
     }, true));
     belgeler().forEach(d => d.addEventListener('click', e => {
       const b = e.target.closest && e.target.closest('input,button,a');
-      if (b && hedef && (kaydetDugmeleri().some(k => k === b || k.contains(b)) || /kaydet|yükle|yukle|güncelle|guncelle/i.test(dugmeYazi(b)))) {
+      // Sınıf Listesi tablosundaki sarı klasör "Resim Yükle" diye adlandırılmış olabilir: Kaydet sayılmaz
+      // (sayılırsa öğrenci yüklendi sanılıp sıradakine geçiliyor, ekran öğrenciden öğrenciye atlıyordu)
+      if (!b || b.closest('#vf-panel') || listeSatirlari().some(r => r.tr.contains(b))) return;
+      if (hedef && (kaydetDugmeleri().some(k => k === b || k.contains(b)) || /kaydet|güncelle|guncelle/i.test(dugmeYazi(b)))) {
         yuklendi(hedef.no); GM_setValue('sonYukleme', JSON.stringify({ no: hedef.no, zaman: Date.now() }));
       }
     }, true));
