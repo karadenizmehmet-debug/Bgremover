@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.21.3">
+<meta name="version" content="3.21.4">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -154,7 +154,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21.3</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21.4</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -505,7 +505,11 @@
     const { pixel_values } = await rmProc(image);
     const out = await rmModel({ input: pixel_values });
     const t = out.output || Object.values(out)[0];
-    const mask = await RawImage.fromTensor(t[0].mul(255).to("uint8")).resize(image.width, image.height);
+    // Maske 0..1 dışına taşabiliyor (GPU'da 1.004, -0.003 gibi). Eskiden uint8'e çevrilirken 256 → 0, -1 → 255 diye
+    // sarıyordu: yüzde / kıyafette şeffaf (beyaz) benekler, arka planda gri benekler. Uint8ClampedArray sınırda keser.
+    const td = t[0], src = td.data, u8 = new Uint8ClampedArray(src.length);
+    for (let i = 0; i < src.length; i++) u8[i] = src[i] * 255;
+    const mask = await new RawImage(u8, td.dims[td.dims.length - 1], td.dims[td.dims.length - 2], 1).resize(image.width, image.height);
     const bmp = await createImageBitmap(blob);
     const c = document.createElement("canvas"); c.width = image.width; c.height = image.height;
     const x = c.getContext("2d", { willReadFrequently: true });
@@ -697,33 +701,36 @@
   }
 
   // Kenar rengi temizleme: yarı saydam kenar pikselinin rengini, yakındaki tam opak (içerideki) piksellerin ortalamasına yaklaştırır.
-  // Maske delikleri: koyu / desenli kıyafette model bazı noktaları arka plan sanıyor, oralardan arka plan rengi
-  // (beyaz) benek gibi görünüyordu. Dışarıyla (fotoğraf kenarıyla) bağlantısı olmayan küçük şeffaf bölgeler kişiye katılır.
-  // Kenardan gelen arka plan ve saç uçlarındaki yarı saydamlık dokunulmaz; kol ile gövde arası gibi büyük boşluklar da kalır.
-  async function fillHoles(bm) {
-    const w = bm.width, h = bm.height, n = w * h, c = document.createElement("canvas"); c.width = w; c.height = h;
-    const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bm, 0, 0);
-    const id = x.getImageData(0, 0, w, h), d = id.data;
-    const low = new Uint8Array(n); for (let i = 0; i < n; i++) low[i] = d[i * 4 + 3] < 200 ? 1 : 0;
-    const seen = new Uint8Array(n), st = new Int32Array(n), maxA = n * 0.004;
-    let filled = 0;
+  // Maske benekleri: model (özellikle telefonda GPU'da) maskede tuz-biber gibi gürültü bırakabiliyor:
+  // kişinin içinde şeffaf noktalar (kıyafette / yüzde beyaz benek) ve arka planda opak noktalar (gri benek).
+  // 1) Kenarla bağlantısı olmayan küçük, tam opak olmayan bölgeler kişiye katılır (delik doldurma).
+  // 2) Kişiden kopuk küçük opak adacıklar silinir. Büyük boşluklar (kol-gövde arası) ve saçın ana kenarı dokunulmaz.
+  function bolgeler(w, h, sec, fn) {   // sec(i): bölgeye dahil mi; fn(piksel listesi | null (büyük), uzunluk, kenara değiyor mu)
+    const n = w * h, seen = new Uint8Array(n), st = new Int32Array(n), maxA = n * 0.004;
     for (let s0 = 0; s0 < n; s0++) {
-      if (!low[s0] || seen[s0]) continue;
-      // bölgeyi dolaş: kenara değiyor mu, kaç piksel
+      if (seen[s0] || !sec(s0)) continue;
       let top = 0, len = 0, edge = false; st[top++] = s0; seen[s0] = 1;
       const comp = [];
       while (top) {
-        const p = st[--top]; if (++len <= maxA) comp.push(p);   // büyük bölgeler (gerçek arka plan) saklanmaz
+        const p = st[--top]; if (++len <= maxA) comp.push(p);
         const px = p % w, py = (p - px) / w;
         if (px === 0 || py === 0 || px === w - 1 || py === h - 1) edge = true;
-        if (px > 0 && low[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; st[top++] = p - 1; }
-        if (px < w - 1 && low[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; st[top++] = p + 1; }
-        if (py > 0 && low[p - w] && !seen[p - w]) { seen[p - w] = 1; st[top++] = p - w; }
-        if (py < h - 1 && low[p + w] && !seen[p + w]) { seen[p + w] = 1; st[top++] = p + w; }
+        if (px > 0 && !seen[p - 1] && sec(p - 1)) { seen[p - 1] = 1; st[top++] = p - 1; }
+        if (px < w - 1 && !seen[p + 1] && sec(p + 1)) { seen[p + 1] = 1; st[top++] = p + 1; }
+        if (py > 0 && !seen[p - w] && sec(p - w)) { seen[p - w] = 1; st[top++] = p - w; }
+        if (py < h - 1 && !seen[p + w] && sec(p + w)) { seen[p + w] = 1; st[top++] = p + w; }
       }
-      if (!edge && len <= maxA) { for (const p of comp) d[p * 4 + 3] = 255; filled += len; }
+      fn(len <= maxA ? comp : null, len, edge);
     }
-    if (!filled) return bm;
+  }
+  async function fillHoles(bm) {
+    const w = bm.width, h = bm.height, c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bm, 0, 0);
+    const id = x.getImageData(0, 0, w, h), d = id.data;
+    let ch = 0;
+    bolgeler(w, h, i => d[i * 4 + 3] < 250, (comp, len, edge) => { if (comp && !edge) { for (const p of comp) d[p * 4 + 3] = 255; ch += len; } });
+    bolgeler(w, h, i => d[i * 4 + 3] >= 16, (comp, len) => { if (comp) { for (const p of comp) d[p * 4 + 3] = 0; ch += len; } });
+    if (!ch) return bm;
     x.putImageData(id, 0, 0);
     const out = await createImageBitmap(c);
     if (bm.close) bm.close();
