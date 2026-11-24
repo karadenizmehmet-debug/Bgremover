@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.11
+// @version      0.3.12
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -316,6 +316,17 @@
     }
     function ac() { ciz(); p.classList.add('acik'); }
 
+    // Öğrenci Bilgileri'ndeki "Resim" (dosya kutusunun yakınındaki en büyük resim)
+    function onizleme() {
+      const kutu = dosyaKutulari()[0]; if (!kutu) return null;
+      let el = kutu;
+      for (let k = 0; k < 7 && el.parentElement; k++) {
+        el = el.parentElement;
+        const im = [...el.querySelectorAll('img')].filter(i => !i.closest('#vf-panel') && gorunur(i)).sort((a, b) => b.width * b.height - a.width * a.height)[0];
+        if (im && im.width >= 60) return im;
+      }
+      return null;
+    }
     function yerlestirFoto(f) {
       const kutu = dosyaKutulari()[0];
       if (!kutu) { durum('Bu sayfada fotoğraf seçme kutusu yok. e-Okul’da öğrencinin fotoğraf ekranını açın.'); return false; }
@@ -461,6 +472,10 @@
     // Sayfa açılınca: açık öğrencinin fotoğrafı varsa ve yüklenmediyse kutuya koy.
     // Tam otomatikte: numara yeniden doğrulanır, Kaydet'e basılır; sayfa yenilenince sıradaki öğrenci açılır.
     // Bir şey yolunda gitmezse (kutu / Kaydet yok, numara değişti, aynı öğrenci tekrar geldi) durur ve yazar.
+    // e-Okul sayfayı göndermeye başladıysa (önizleme / kayıt yükleniyor) bekleyen adımlar iptal: yarıda kesmesinler
+    let ayriliyor = false;
+    window.addEventListener('beforeunload', () => { ayriliyor = true; });
+    window.addEventListener('pagehide', () => { ayriliyor = true; });
     function otomatik(elle) {
       const v = kayitli(), acik = acikOgrenciNo(), son = GM_getValue('otoSon', '');
       let oto = !!GM_getValue('tamOto', false);
@@ -474,7 +489,7 @@
       // Kaydet adımı: numara yeniden doğrulanır; "Onayla" varsa önce ona, sonra Kaydet'e basılır.
       // Kaydet sayfayı yenileyince yukarıdaki dal sıradaki öğrenciyi açar.
       const kaydetAdim = f => {
-        if (!GM_getValue('tamOto', false)) return;
+        if (ayriliyor || !GM_getValue('tamOto', false)) return;
         const a2 = acikOgrenciNo(), k = kaydetDugmeleri()[0];
         if (!a2 || a2.no !== f.no) { otoDurdur('Numara doğrulanamadı, otomatik durdu.'); return; }
         if (!k) { otoDurdur('Kaydet düğmesi bulunamadı, otomatik durdu. “Kaydet düğmesini tanıt” ile disket simgesini gösterin.'); return; }
@@ -483,7 +498,7 @@
         const kaydet = () => { const k2 = kaydetDugmeleri()[0] || k; yuklendi(f.no); GM_setValue('otoSon', f.no); GM_setValue('otoZaman', Date.now()); durum(f.no + ' kaydediliyor...'); k2.click();
           // e-Okul kaydedip sayfayı yenilemezse (aynı sayfada kalırsa) sıradaki öğrenci buradan açılır;
           // yenilerse bu sayaç ölür, açılışta "az önce kaydedilen" dalı sıradakini açar
-          setTimeout(() => { if (GM_getValue('tamOto', false) && GM_getValue('otoSon', '') === f.no) { GM_setValue('otoSon', ''); durum(f.no + ' kaydedildi. Sıradaki açılıyor...'); sonraki(); } }, 3000);
+          setTimeout(() => { if (!ayriliyor && GM_getValue('tamOto', false) && GM_getValue('otoSon', '') === f.no) { GM_setValue('otoSon', ''); durum(f.no + ' kaydedildi. Sıradaki açılıyor...'); sonraki(); } }, 5000);
         };
         if (onay) { onay.click(); setTimeout(kaydet, 1200); } else kaydet();
       };
@@ -492,15 +507,27 @@
       let yer = null; try { yer = JSON.parse(GM_getValue('yerlesen', 'null')); } catch (e) { yer = null; }
       if (f && !yuklenenler().has(f.no) && yer && yer.no === f.no && Date.now() - yer.zaman < 180000) {
         ac();
-        if (oto) { durum(f.no + ' fotoğrafı kondu, Kaydet’e basılıyor...'); setTimeout(() => kaydetAdim(f), 1500); }
+        // buraya sayfa yenilenerek gelindi: e-Okul önizlemeyi yükledi, sıra Kaydet'te
+        if (oto) { durum(f.no + ' önizleme geldi, Kaydet’e basılıyor...'); setTimeout(() => kaydetAdim(f), 1500); }
         else durum(f.no + ' fotoğrafı kondu. Önizlemeyi kontrol edip Kaydet’e basın.');
         return;
       }
       if (f && !yuklenenler().has(f.no) && dosyaKutulari().length) {
         ac();
         GM_setValue('yerlesen', JSON.stringify({ no: f.no, zaman: Date.now() })); GM_setValue('otoZaman', Date.now());
+        const img = onizleme(), eski = img ? img.src : '';
         if (!yerlestirFoto(f) || !oto) return;
-        setTimeout(() => kaydetAdim(f), 1200);   // sayfa yenilenmezse buradan kaydedilir
+        // Önizleme beklenir: e-Okul fotoğrafı sunucuya yükleyip sayfayı yeniler (o zaman yukarıdaki dal Kaydet'e basar)
+        // ya da aynı sayfada resmi değiştirir. Önceden 1,2 sn sonra Kaydet'e basılıyordu; yükleme yarıda kesilip kayıt olmuyordu.
+        durum(f.no + ' fotoğrafı kondu, e-Okul önizlemesi bekleniyor...');
+        const t0 = Date.now(), bak = () => {
+          if (ayriliyor || !GM_getValue('tamOto', false)) return;
+          const i2 = onizleme();
+          if (i2 && eski && i2.src !== eski) { setTimeout(() => kaydetAdim(f), 800); return; }
+          if (Date.now() - t0 > 25000) { otoDurdur(f.no + ': e-Okul önizlemesi gelmedi, otomatik durdu. Browse ile seçip Kaydet’e elle basın.'); return; }
+          setTimeout(bak, 700);
+        };
+        setTimeout(bak, 700);
         return;
       }
       if (oto && (elle || !acik)) { ac(); sonraki(); }
