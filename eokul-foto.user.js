@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.9
+// @version      0.3.10
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -479,7 +479,11 @@
         if (!k) { otoDurdur('Kaydet düğmesi bulunamadı, otomatik durdu. “Kaydet düğmesini tanıt” ile disket simgesini gösterin.'); return; }
         const onay = belgeler().flatMap(d => [...d.querySelectorAll('input[type=submit],input[type=button],button,a')])
           .find(b => gorunur(b) && !b.closest('#vf-panel') && /onayla/i.test(dugmeYazi(b)) && !/iptal|vazge|sil|delete|cancel/i.test(dugmeYazi(b)));
-        const kaydet = () => { const k2 = kaydetDugmeleri()[0] || k; yuklendi(f.no); GM_setValue('otoSon', f.no); GM_setValue('otoZaman', Date.now()); durum(f.no + ' kaydediliyor...'); k2.click(); };
+        const kaydet = () => { const k2 = kaydetDugmeleri()[0] || k; yuklendi(f.no); GM_setValue('otoSon', f.no); GM_setValue('otoZaman', Date.now()); durum(f.no + ' kaydediliyor...'); k2.click();
+          // e-Okul kaydedip sayfayı yenilemezse (aynı sayfada kalırsa) sıradaki öğrenci buradan açılır;
+          // yenilerse bu sayaç ölür, açılışta "az önce kaydedilen" dalı sıradakini açar
+          setTimeout(() => { if (GM_getValue('tamOto', false) && GM_getValue('otoSon', '') === f.no) { GM_setValue('otoSon', ''); durum(f.no + ' kaydedildi. Sıradaki açılıyor...'); sonraki(); } }, 3000);
+        };
         if (onay) { onay.click(); setTimeout(kaydet, 1200); } else kaydet();
       };
       // Aynı öğrenciye 3 dk içinde ikinci kez kendiliğinden konmaz: e-Okul fotoğraf seçilince sayfayı yeniliyor,
