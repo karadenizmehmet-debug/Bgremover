@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.16
+// @version      0.3.17
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -414,8 +414,9 @@
     let ayriliyor = false;
     window.addEventListener('beforeunload', () => { ayriliyor = true; });
     window.addEventListener('pagehide', () => { ayriliyor = true; });
-    // Döngü sigortası: 40 sn içinde 4'ten fazla öğrenci açılmaya çalışıldıysa tam otomatik durur
-    // (sayfa her yüklenişte yeniden öğrenci açıp ekran gelip gitmesin)
+    // Döngü sigortası: arada hiç fotoğraf konmadan 40 sn içinde 4 kez öğrenci açılmaya çalışıldıysa tam otomatik durur
+    // (sayfa her yüklenişte yeniden öğrenci açıp ekran gelip gitmesin). Her konan fotoğraf sayacı sıfırlar;
+    // önceden normal hızlı çalışmada da 5. öğrenciden sonra duruyordu.
     function otoDurdur(t) { GM_setValue('tamOto', false); GM_setValue('otoSon', ''); GM_setValue('sonrakiLog', '[]'); $('#vf-oto').checked = false; ac(); durum(t); }
     function sonraki() {
       let log = []; try { log = JSON.parse(GM_getValue('sonrakiLog', '[]')).filter(z => Date.now() - z < 40000); } catch (e) { log = []; }
@@ -580,6 +581,7 @@
       if (f && !yuklenenler().has(f.no) && dosyaKutulari().length) {
         ac();
         GM_setValue('yerlesen', JSON.stringify({ no: f.no, zaman: Date.now() })); GM_setValue('otoZaman', Date.now());
+        GM_setValue('sonrakiLog', '[]');   // öğrenci açıldı, fotoğraf kondu: döngü sayacı sıfırlanır
         const img = onizleme(), eski = img ? img.src : '';
         if (!yerlestirFoto(f) || !oto) return;
         // Önizleme beklenir: e-Okul fotoğrafı sunucuya yükleyip sayfayı yeniler (o zaman yukarıdaki dal Kaydet'e basar)
