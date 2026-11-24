@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.19">
+<meta name="version" content="3.20">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -50,6 +50,13 @@
   #ed[hidden]{display:none}
   #lst{position:fixed;inset:0;background:#020617;z-index:45;display:flex;justify-content:center;padding:12px;overflow:auto}
   #lst[hidden]{display:none}
+  #org{position:fixed;inset:0;background:#000;z-index:60;display:flex;align-items:center;justify-content:center;padding:10px;overflow:auto}
+  #org[hidden]{display:none}
+  .orgbox{width:100%;max-width:520px;color:#e2e8f0}
+  #orgC{display:block;margin:0 auto;touch-action:none;border-radius:4px}
+  .orgbox .row{margin-top:8px;flex-wrap:nowrap}
+  .orgbox .row .btn{flex:1;padding:11px 6px;font-size:.85rem}
+  #orgHint{font-size:.8rem;color:#94a3b8;text-align:center;margin-top:6px}
   .lstbox{width:100%;max-width:460px;color:#e2e8f0}
   .lstbox h3{margin:4px 0 8px;font-size:1.05rem}
   .lstbox .row{margin-top:8px;flex-wrap:nowrap}
@@ -146,7 +153,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.19</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.20</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -258,6 +265,16 @@
   </div>
 </div>
 
+<div id="org" hidden>
+  <div class="orgbox">
+    <div style="text-align:center;font-size:.9rem;margin-bottom:6px"><b>Orijinali düzenle</b> · <span id="orgName"></span></div>
+    <canvas id="orgC"></canvas>
+    <div id="orgHint">Köşeleri sürükleyerek kırp (yandaki başka öğrenciyi, fazlalığı çıkar). Çerçeveyi ortadan tutup taşı.</div>
+    <div class="row"><button class="btn sec" id="orgL" type="button">⟲ Sola</button><button class="btn sec" id="orgR" type="button">⟳ Sağa</button><button class="btn sec" id="orgFull" type="button">⛶ Tümü</button><button class="btn sec" id="orgRaw" type="button">↺ İlk hali</button></div>
+    <div class="row"><button class="btn sec" id="orgX" type="button">Vazgeç</button><button class="btn" id="orgSave" type="button">Kaydet ve yeniden işle</button></div>
+  </div>
+</div>
+
 <div id="lst" hidden>
   <div class="lstbox">
     <h3>📋 Sınıf listesi <small id="lstCls" style="color:#94a3b8;font-weight:400"></small></h3>
@@ -349,7 +366,7 @@
     if (!it.id) it.id = newId();
     clearTimeout(it._pt);
     it._pt = setTimeout(() => {
-      DB.put({ id: it.id, name: it.name, cls: it.cls || "", stu: it.stu || "", man: it.man || null, face: it.face || null, file: it.file, cut: it.cutBlob || null })
+      DB.put({ id: it.id, name: it.name, cls: it.cls || "", stu: it.stu || "", man: it.man || null, face: it.face || null, file: it.file, raw: it.raw || null, cut: it.cutBlob || null })
         .catch(e => { console.warn("kayıt", e); $("#saveInfo").textContent = "⚠ Telefona kaydedilemedi (depolama dolu olabilir): " + (e && e.message || e); });
     }, 300);
   }
@@ -419,7 +436,7 @@
   function makeCell(it) {   // ızgaraya ekler; yeniden çekimde camSwap yerine taşır
     const d = document.createElement("div"); d.className = "it";
     d.innerHTML = '<div class="ph">⏳</div><div class="nm"></div><div class="st">bekliyor</div>';
-    d.querySelector(".nm").textContent = nmText(it); it.el = d; d.onclick = () => openEditor(it); $("#grid").appendChild(d);
+    d.querySelector(".nm").textContent = nmText(it); it.el = d; d.onclick = () => it.blob ? openEditor(it) : (it.file && !it.inQ && !busy ? openOrig(it) : null); $("#grid").appendChild(d);   // işlenemeyen fotoğrafın orijinali de düzeltilebilir
   }
   function msg(t) { $("#msg").textContent = t; if (cam.on && cam.proc) { const ci = $("#camInfo"); ci.className = "edhint"; ci.textContent = t; } }
   function prog(p) { $("#bar").style.display = "block"; $("#bar i").style.width = Math.round(p * 100) + "%"; }
@@ -1407,14 +1424,96 @@
   $("#optFast").onclick = () => { camOpt.fast = !camOpt.fast; optSave(); camLive(); };
   try { $("#zipOrig").checked = localStorage.getItem("bgr-zip-orijinal") !== "0"; } catch (e) { $("#zipOrig").checked = true; }
   $("#zipOrig").onchange = e => { try { localStorage.setItem("bgr-zip-orijinal", e.target.checked ? "1" : "0"); } catch (er) {} };
-  $("#edorig").onclick = () => {
-    const it = ed.it; if (!it || !it.file) return;
-    const u = URL.createObjectURL(it.file), o = document.createElement("div");
-    o.style.cssText = "position:fixed;inset:0;z-index:60;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;padding:10px";
-    o.innerHTML = '<img style="max-width:100%;max-height:88vh;object-fit:contain"><div style="color:#cbd5e1;font-size:.85rem">Orijinal (işlenmemiş) · kapatmak için dokun</div>';
-    o.firstChild.src = u; o.onclick = () => { URL.revokeObjectURL(u); o.remove(); };
-    document.body.appendChild(o);
+  $("#edorig").onclick = () => { const it = ed.it; if (!it || !it.file) return; closeEditor(); openOrig(it); };
+
+  // ---------- orijinali düzenle: döndür, kırp; kaydedince arka plan silme ve kadraj baştan yapılır ----------
+  // İlk (dokunulmamış) hali it.raw'da saklı kalır: "İlk hali" ile geri dönülür, ZIP'teki orijinal klasörüne de o konur.
+  const org = { it: null, bmp: null, rot: 0, cr: null, drag: null, dirty: false };
+  const orgC = $("#orgC");
+  async function orgLoad(file) {
+    if (org.bmp && org.bmp.close) org.bmp.close();
+    org.bmp = await createImageBitmap(file); org.rot = 0; org.cr = { x: 0, y: 0, w: 1, h: 1 }; orgDraw();
+  }
+  async function openOrig(it) {
+    if (!it || !it.file) return;
+    org.it = it; org.dirty = false; $("#orgName").textContent = it.name; $("#orgRaw").disabled = !it.raw;
+    $("#org").hidden = false; document.body.style.overflow = "hidden";
+    try { await orgLoad(it.file); } catch (e) { msg("Orijinal açılamadı: " + (e.message || e)); orgClose(); }
+  }
+  function orgClose() { $("#org").hidden = true; document.body.style.overflow = ""; if (org.bmp && org.bmp.close) org.bmp.close(); org.bmp = null; org.it = null; }
+  const orgDims = () => { const b = org.bmp, sw = org.rot % 180 ? b.height : b.width, sh = org.rot % 180 ? b.width : b.height; return [sw, sh]; };
+  function orgRotated(scale) {   // döndürülmüş tam görüntü (scale ile küçültülmüş)
+    const b = org.bmp, [sw, sh] = orgDims(), c = document.createElement("canvas");
+    c.width = Math.round(sw * scale); c.height = Math.round(sh * scale);
+    const x = c.getContext("2d"); x.translate(c.width / 2, c.height / 2); x.rotate(org.rot * Math.PI / 180);
+    x.drawImage(b, -b.width * scale / 2, -b.height * scale / 2, b.width * scale, b.height * scale);
+    return c;
+  }
+  function orgDraw() {
+    if (!org.bmp) return;
+    const [sw, sh] = orgDims(), maxW = Math.min(500, window.innerWidth - 24), maxH = window.innerHeight * 0.66;
+    const k = Math.min(maxW / sw, maxH / sh), W = Math.round(sw * k), H = Math.round(sh * k);
+    orgC.width = W; orgC.height = H;
+    const x = orgC.getContext("2d"); x.drawImage(orgRotated(k), 0, 0);
+    const r = org.cr, rx = r.x * W, ry = r.y * H, rw = r.w * W, rh = r.h * H;
+    x.fillStyle = "rgba(0,0,0,.6)";
+    x.fillRect(0, 0, W, ry); x.fillRect(0, ry + rh, W, H - ry - rh); x.fillRect(0, ry, rx, rh); x.fillRect(rx + rw, ry, W - rx - rw, rh);
+    x.strokeStyle = "#38bdf8"; x.lineWidth = 2; x.strokeRect(rx, ry, rw, rh);
+    x.fillStyle = "#38bdf8"; for (const [px, py] of [[rx, ry], [rx + rw, ry], [rx, ry + rh], [rx + rw, ry + rh]]) x.fillRect(px - 7, py - 7, 14, 14);
+  }
+  orgC.addEventListener("pointerdown", e => {
+    const b = orgC.getBoundingClientRect(), px = (e.clientX - b.left) / b.width, py = (e.clientY - b.top) / b.height, r = org.cr;
+    const tx = 28 / b.width, ty = 28 / b.height;
+    const corners = { tl: [r.x, r.y], tr: [r.x + r.w, r.y], bl: [r.x, r.y + r.h], br: [r.x + r.w, r.y + r.h] };
+    let mode = null;
+    for (const [k, [cx, cy]] of Object.entries(corners)) if (Math.abs(px - cx) < tx && Math.abs(py - cy) < ty) { mode = k; break; }
+    if (!mode && px > r.x && px < r.x + r.w && py > r.y && py < r.y + r.h) mode = "move";
+    if (!mode) return;
+    org.drag = { mode, px, py, r0: { ...r } }; orgC.setPointerCapture(e.pointerId);
+  });
+  orgC.addEventListener("pointermove", e => {
+    const d = org.drag; if (!d) return;
+    const b = orgC.getBoundingClientRect(), px = (e.clientX - b.left) / b.width, py = (e.clientY - b.top) / b.height;
+    const dx = px - d.px, dy = py - d.py, r0 = d.r0, m = 0.08, cl = v => Math.max(0, Math.min(1, v));
+    let x0 = r0.x, y0 = r0.y, x1 = r0.x + r0.w, y1 = r0.y + r0.h;
+    if (d.mode === "move") { const nx = Math.max(0, Math.min(1 - r0.w, r0.x + dx)), ny = Math.max(0, Math.min(1 - r0.h, r0.y + dy)); x0 = nx; y0 = ny; x1 = nx + r0.w; y1 = ny + r0.h; }
+    else {
+      if (d.mode[1] === "l") x0 = Math.min(cl(r0.x + dx), x1 - m); else x1 = Math.max(cl(r0.x + r0.w + dx), x0 + m);
+      if (d.mode[0] === "t") y0 = Math.min(cl(r0.y + dy), y1 - m); else y1 = Math.max(cl(r0.y + r0.h + dy), y0 + m);
+    }
+    org.cr = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; org.dirty = true; orgDraw();
+  });
+  const orgUp = () => { org.drag = null; };
+  orgC.addEventListener("pointerup", orgUp); orgC.addEventListener("pointercancel", orgUp);
+  $("#orgL").onclick = () => { org.rot = (org.rot + 270) % 360; org.cr = { x: 0, y: 0, w: 1, h: 1 }; org.dirty = true; orgDraw(); };
+  $("#orgR").onclick = () => { org.rot = (org.rot + 90) % 360; org.cr = { x: 0, y: 0, w: 1, h: 1 }; org.dirty = true; orgDraw(); };
+  $("#orgFull").onclick = () => { org.cr = { x: 0, y: 0, w: 1, h: 1 }; org.dirty = true; orgDraw(); };
+  $("#orgRaw").onclick = async () => { if (!org.it || !org.it.raw) return; await orgLoad(org.it.raw); org.dirty = true; org.toRaw = true; };
+  $("#orgX").onclick = orgClose;
+  $("#orgSave").onclick = async () => {
+    const it = org.it; if (!it) return;
+    if (!org.dirty) return orgClose();
+    const full = org.rot === 0 && org.cr.x === 0 && org.cr.y === 0 && org.cr.w === 1 && org.cr.h === 1;
+    let file;
+    if (full && org.toRaw) file = it.raw;
+    else {
+      const big = orgRotated(1), r = org.cr, c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(r.w * big.width)); c.height = Math.max(1, Math.round(r.h * big.height));
+      c.getContext("2d").drawImage(big, Math.round(r.x * big.width), Math.round(r.y * big.height), c.width, c.height, 0, 0, c.width, c.height);
+      const bl = await new Promise(res => c.toBlob(res, "image/jpeg", 0.95));
+      file = new File([bl], it.file.name || it.name, { type: "image/jpeg" });
+    }
+    org.toRaw = false;
+    if (!it.raw) it.raw = it.file;            // dokunulmamış ilk hal korunur
+    it.file = file;
+    if (it.file === it.raw) it.raw = null;    // ilk haline dönüldü
+    it.cut = null; it.info = null; it.face = null; it.lum = 0; it.man = null; it.cutBlob = null;
+    persist(it); orgClose();
+    it.inQ = true; setSt(it, "sırada"); camQ.push(it); qPump();
+    msg("“" + it.name + "” orijinali değişti, yeniden işleniyor...");
   };
+  window.addEventListener("resize", () => { if (!$("#org").hidden) orgDraw(); });
+
   optUi();
   // Otomatik çekim: yüz ~1 sn (4 ölçüm) uygun kalınca çeker. Aynı öğrenciyi iki kez çekmemek için
   // bir çekimden sonra yüz kadrajdan çıkana (en az 0,5 sn yüz yok) kadar beklenir.
@@ -1582,12 +1681,12 @@
       const it = camQ[0];
       if (items.includes(it)) {
         setSt(it, "işleniyor...");
-        try { await ensureModels(); await processItem(it); await renderItem(it); }
-        catch (e) { console.error(e); setSt(it, "hata — Başlat'a bas", "er"); }
+        try { await ensureModels(); await processItem(it); await renderItem(it); it.qFail = false; }
+        catch (e) { console.error(e); it.qFail = true; setSt(it, "hata — Başlat'a bas", "er"); }
       }
       it.inQ = false; camQ.shift(); camAfter();
-      if (!cam.on) { const bad = items.filter(i => i.cam && !i.cut && !i.inQ).length;
-        msg(camQ.length ? "Arkada işleniyor: " + camQ.length + " fotoğraf kaldı..." : bad ? bad + " çekim işlenemedi (internet / model). Başlat'a basarak tekrar dene." : "Tüm çekimler işlendi. Kontrol için fotoğraflara dokun."); }
+      if (!cam.on) { const bad = items.filter(i => i.qFail && !i.cut).length;
+        msg(camQ.length ? "Arkada işleniyor: " + camQ.length + " fotoğraf kaldı..." : bad ? bad + " fotoğraf işlenemedi (internet / model). Başlat'a basarak tekrar dene." : "Tüm çekimler işlendi. Kontrol için fotoğraflara dokun."); }
     }
     qRun = false; updateGains();
   }
@@ -1693,7 +1792,7 @@
     if (bad.length) files.push({ name: "yeniden_cekilecekler.txt", data: new TextEncoder().encode("Yeniden çekilmesi önerilenler (otomatik tahmin):\r\n" + bad.map(i => (i.cls ? i.cls + " / " : "") + i.name + " - " + warnsOf(i).join(", ")).join("\r\n") + "\r\n") });
     const clsList = [...new Set(items.filter(i => i.blob).map(i => i.cls || ""))];
     // işlenmemiş orijinaller: sınıf/orijinal/ad.jpg (kamera çekimleri tam çözünürlük, kırpılmamış)
-    if ($("#zipOrig").checked) for (const it of items) if (it.file) files.push({ name: uniqueName((it.cls ? it.cls + "/" : "") + "orijinal/" + it.name, used), data: new Uint8Array(await it.file.arrayBuffer()) });
+    if ($("#zipOrig").checked) for (const it of items) if (it.file) files.push({ name: uniqueName((it.cls ? it.cls + "/" : "") + "orijinal/" + it.name, used), data: new Uint8Array(await (it.raw || it.file).arrayBuffer()) });
     // listesi olan sınıflarda fotoğrafı olmayan öğrenciler
     const miss = [];
     for (const c of clsList) { const L = lstGet(c); L.forEach(st => { if (!items.some(i => i.blob && (i.cls || "") === c && i.stu === st.no)) miss.push((c ? c + " / " : "") + st.no + " " + st.name); }); }
@@ -1890,7 +1989,7 @@
     busy = true;
     const pos = id => { const i = order.indexOf(id); return i < 0 ? 1e9 : i; };
     recs.sort((a, b) => pos(a.id) - pos(b.id));
-    items = recs.map(r => ({ id: r.id, file: r.file, name: r.name, cls: r.cls || "", stu: r.stu || "", man: r.man || null, face: r.face || null, cutBlob: r.cut || null, cut: null, info: null, blob: null, url: null }));
+    items = recs.map(r => ({ id: r.id, file: r.file, raw: r.raw || null, name: r.name, cls: r.cls || "", stu: r.stu || "", man: r.man || null, face: r.face || null, cutBlob: r.cut || null, cut: null, info: null, blob: null, url: null }));
     $("#grid").innerHTML = ""; items.forEach(makeCell);
     msg("Önceki çalışmadan " + items.length + " fotoğraf geri yükleniyor...");
     for (const it of items) {
