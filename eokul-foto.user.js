@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.2
+// @version      0.3.3
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -76,22 +76,29 @@
   const donemMi = t => /\b(19|20)\d\d\s*[-–\/]\s*(19|20)?\d\d\b|dönem|donem|yılı|yili|ders\s*yılı|s[ıi]n[ıi]f|şube|sube/i.test(t || '');
   // e-Okul "Öğrenci Fotoğrafları" sayfası: her öğrenci bir kart, başlığı "1-ARDA ÇAMLI" (okul no - AD SOYAD), altında düzenle simgesi
   const KART_RE = /^\s*(\d{1,6})\s*[-–]\s*([A-ZÇĞİÖŞÜ]{2,}(?:\s+[A-ZÇĞİÖŞÜ]{2,})+)\s*$/;
-  // <br> ile iki satıra bölünmüş adda satırlar boşlukla birleşir ("1-ARDA<br>ÇAMLI" → "1-ARDA ÇAMLI")
-  const kartYazi = el => [...el.childNodes].map(n => n.nodeName === 'BR' ? ' ' : n.textContent).join('').replace(/\s+/g, ' ');
+  // yazı: <br> ve iç içe etiketler boşlukla ayrılır ("1-ARDA<br>ÇAMLI", "1-<span>ARDA</span> ÇAMLI" → "1-ARDA ÇAMLI")
+  const kartYazi = el => { let t = ''; for (const n of el.childNodes) t += n.nodeType === 3 ? n.data : n.nodeType === 1 ? (n.tagName === 'BR' ? ' ' : ' ' + kartYazi(n) + ' ') : ''; return t.replace(/\s+/g, ' ').trim(); };
   function kartlar() {
-    const out = [], gor = new Set();
-    for (const d of belgeler()) for (const el of d.querySelectorAll('h1,h2,h3,h4,h5,h6,span,div,td,b,strong,label,p')) {
-      if ([...el.children].some(c => c.tagName !== 'BR') || el.closest('#vf-panel') || !gorunur(el)) continue;
+    const bas = [];
+    for (const d of belgeler()) for (const el of d.querySelectorAll('body *')) {
+      if (/^(SCRIPT|STYLE|SELECT|OPTION|TEXTAREA)$/.test(el.tagName)) continue;
+      const tc = el.textContent || '';
+      if (tc.length > 90 || !/\d\s*[-–]\s*[A-ZÇĞİÖŞÜ]/.test(tc) || el.closest('#vf-panel')) continue;
       const m = KART_RE.exec(kartYazi(el));
-      if (!m || gor.has(el)) continue; gor.add(el);
+      if (m) bas.push({ el, m });
+    }
+    // en içteki eşleşme başlıktır (içinde başka eşleşen öğe olmayan)
+    const baslik = bas.filter(x => !bas.some(y => y !== x && x.el.contains(y.el)) && gorunur(x.el));
+    const els = baslik.map(x => x.el), out = [];
+    for (const { el, m } of baslik) {
       // kart: başlığı içeren, başka öğrenci başlığı içermeyen en geniş ata
       let kart = el;
-      for (let k = 0; k < 6 && kart.parentElement; k++) {
+      for (let k = 0; k < 8 && kart.parentElement && kart.parentElement.tagName !== 'BODY'; k++) {
         const ust = kart.parentElement;
-        if ([...ust.querySelectorAll('*')].filter(x => x !== el && ![...x.children].some(c => c.tagName !== 'BR') && KART_RE.test(kartYazi(x))).length) break;
+        if (els.some(x => x !== el && ust.contains(x))) break;
         kart = ust;
       }
-      const tik = kart.querySelector('a,button,[onclick],[data-toggle],[data-bs-toggle]') || kart.querySelector('i,svg');
+      const tik = kart.querySelector('a,button,[onclick],[data-toggle],[data-bs-toggle],[role=button]') || kart.querySelector('i,svg');
       out.push({ no: m[1], ad: m[2], el, kart, tik });
     }
     return out;
@@ -301,7 +308,7 @@
       sel.innerHTML = '<option value="">— seç —</option>' + (v ? v.fotolar.map((f, i) => `<option value="${i}">${y.has(f.no) ? '✓ ' : ''}${f.no} ${String(f.ad || '').replace(/[<>&"]/g, '')}</option>`).join('') : '');
       sel.value = eski;
       const sec = ogrenciSecimi(), acik = acikOgrenciNo();
-      $('#vf-tani').textContent = `Sayfada: ${dosyaKutulari().length} dosya kutusu · liste ${listeSatirlari().length} öğrenci · seçim kutusu ${sec ? sec.ops.length : 'yok'} · Kaydet ${kaydetDugmeleri().length} · numara ${acik ? acik.kaynak : 'bulunamadı'}`;
+      $('#vf-tani').textContent = `Sayfada: ${dosyaKutulari().length} dosya kutusu · liste ${listeSatirlari().length} öğrenci · seçim kutusu ${sec ? sec.ops.length : 'yok'} · Kaydet ${kaydetDugmeleri().length} · kart ${kartlar().length}${sonKart ? ' (son dokunulan ' + sonKart.no + ')' : ''} · numara ${acik ? acik.kaynak : 'bulunamadı'}`;
     }
     function ac() { ciz(); p.classList.add('acik'); }
 
