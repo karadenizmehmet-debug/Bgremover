@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.23.1">
+<meta name="version" content="3.23.2">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -158,7 +158,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.23.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.23.2</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -387,6 +387,17 @@
       persist(it);
     } catch (e) { console.warn("kesik kayıt", e); }
   }
+  // kesik görüntüyü kaydetme (PNG kodlama) işlemeyi yavaşlatmasın: işleme kuyruğu boşalınca tek tek yapılır
+  const pSira = []; let pRun = false;
+  function persistLater(it) { if (!pSira.includes(it)) pSira.push(it); setTimeout(persistPump, 1500); }
+  async function persistPump() {
+    if (pRun) return; pRun = true;
+    while (pSira.length) {
+      if (busy || (typeof camQ !== "undefined" && camQ.length) || cam.proc) { pRun = false; setTimeout(persistPump, 2000); return; }
+      const it = pSira.shift(); if (items.includes(it)) await persistCut(it);
+    }
+    pRun = false;
+  }
   let ordT = 0;
   function persistOrder() { clearTimeout(ordT); ordT = setTimeout(() => DB.setOrder(items.map(i => i.id)).catch(() => {}), 300); }
   let bg = "#ffffff", items = [], removeBackground = null, preloadFn = null, cpuOnly = false, token = 0, busy = false;
@@ -513,6 +524,7 @@
     // sarıyordu: yüzde / kıyafette şeffaf (beyaz) benekler, arka planda gri benekler. Uint8ClampedArray sınırda keser.
     const td = t[0], src = td.data, u8 = new Uint8ClampedArray(src.length);
     for (let i = 0; i < src.length; i++) u8[i] = src[i] * 255;
+    cleanAlpha(u8, td.dims[td.dims.length - 1], td.dims[td.dims.length - 2]);   // benek / kalıntı temizliği 1024 px maskede (hızlı)
     const mask = await new RawImage(u8, td.dims[td.dims.length - 1], td.dims[td.dims.length - 2], 1).resize(image.width, image.height);
     const bmp = await createImageBitmap(blob);
     const c = document.createElement("canvas"); c.width = image.width; c.height = image.height;
@@ -728,17 +740,15 @@
       fn(len <= maxA ? comp : null, len, edge);
     }
   }
-  async function fillHoles(bm) {
-    const w = bm.width, h = bm.height, c = document.createElement("canvas"); c.width = w; c.height = h;
-    const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bm, 0, 0);
-    const id = x.getImageData(0, 0, w, h), d = id.data;
+  // a: alfa dizisi (0..255), yerinde temizlenir; değişen piksel sayısını döndürür
+  function cleanAlpha(a, w, h) {
     let ch = 0;
-    bolgeler(w, h, i => d[i * 4 + 3] < 250, (comp, len, edge) => { if (comp && !edge) { for (const p of comp) d[p * 4 + 3] = 255; ch += len; } });
-    bolgeler(w, h, i => d[i * 4 + 3] >= 16, (comp, len) => { if (comp) { for (const p of comp) d[p * 4 + 3] = 0; ch += len; } });
+    bolgeler(w, h, i => a[i] < 250, (comp, len, edge) => { if (comp && !edge) { for (const p of comp) a[p] = 255; ch += len; } });
+    bolgeler(w, h, i => a[i] >= 16, (comp, len) => { if (comp) { for (const p of comp) a[p] = 0; ch += len; } });
     // 3) Kişiden uzak soluk kalıntılar (tahta / duvar dokusu yarı saydam kalmış): opak kişiye (alfa ≥ 200)
     //    uzaklığı genişliğin %2'sinden fazla olan yarı saydam pikseller silinir. Saç telleri kişiye yakın olduğu için kalır.
     const n = w * h, INF = 1e9, dist = new Float32Array(n), R = Math.max(8, w * 0.02);
-    for (let i = 0; i < n; i++) dist[i] = d[i * 4 + 3] >= 200 ? 0 : INF;
+    for (let i = 0; i < n; i++) dist[i] = a[i] >= 200 ? 0 : INF;
     for (let y = 0; y < h; y++) for (let x0 = 0; x0 < w; x0++) {          // iki geçişli uzaklık (chamfer)
       const i = y * w + x0; let v = dist[i];
       if (x0 > 0) v = Math.min(v, dist[i - 1] + 1);
@@ -751,8 +761,17 @@
       if (y < h - 1) { v = Math.min(v, dist[i + w] + 1); if (x0 < w - 1) v = Math.min(v, dist[i + w + 1] + 1.4); if (x0 > 0) v = Math.min(v, dist[i + w - 1] + 1.4); }
       dist[i] = v;
     }
-    for (let i = 0; i < n; i++) if (dist[i] > R && d[i * 4 + 3]) { d[i * 4 + 3] = 0; ch++; }
-    if (!ch) return bm;
+    for (let i = 0; i < n; i++) if (dist[i] > R && a[i]) { a[i] = 0; ch++; }
+    return ch;
+  }
+  // tam boy kesik görüntü için (eski motor); RMBG'de temizlik 1024 px maskede yapılır, çok daha hızlı
+  async function fillHoles(bm) {
+    const w = bm.width, h = bm.height, c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bm, 0, 0);
+    const id = x.getImageData(0, 0, w, h), d = id.data, a = new Uint8Array(w * h);
+    for (let i = 0; i < a.length; i++) a[i] = d[i * 4 + 3];
+    if (!cleanAlpha(a, w, h)) return bm;
+    for (let i = 0; i < a.length; i++) d[i * 4 + 3] = a[i];
     x.putImageData(id, 0, 0);
     const out = await createImageBitmap(c);
     if (bm.close) bm.close();
@@ -1166,12 +1185,13 @@
   async function processItem(it) {
     const src = await prepare(it.file);
     const out = await withTimeout(cutout(src), 90000);
-    it.cut = await fillHoles(await createImageBitmap(out));
+    it.cut = await createImageBitmap(out);
+    if ($("#model").value !== "rmbg") it.cut = await fillHoles(it.cut);   // RMBG'de maske zaten temizlendi
     if ($("#fx_defringe").checked) { try { it.cut = await defringeBitmap(it.cut); } catch (e) { console.warn("kenar temizleme", e); } }
     it.info = analyze(it.cut);
     try { it.face = await withTimeout(findFace(src), 15000); } catch (e) { console.warn("yüz", e); it.face = null; }
     it.lum = it.face ? faceLum(it) : 0;
-    persistCut(it);   // arka planı silinmiş hali saklanır: uygulama yeniden açılınca tekrar işlemek gerekmez
+    persistLater(it);   // arka planı silinmiş hali saklanır (PNG kodlama yavaş: işler bitince, sırayla)
   }
 
   // ---------- toplu işlem ----------
