@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.21">
+<meta name="version" content="3.21.1">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -70,6 +70,7 @@
   .lr .ln{flex:0 0 74px}.lr .lm{flex:1}
   .lr button{flex:0 0 30px;height:30px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#f87171;cursor:pointer}
   .lr.done input{border-color:#166534}
+  .lr.chk .ln{border-color:#f59e0b;background:#422006}
   #lstMsg{font-size:.8rem;color:#94a3b8;margin-top:6px;min-height:1.2em}
   #camStu{display:flex;align-items:center;gap:8px;margin:0 0 8px;background:#0c4a6e;border:1px solid #38bdf8;border-radius:12px;padding:6px 8px;color:#e0f2fe;font-size:.9rem}
   #camStu[hidden]{display:none}
@@ -153,7 +154,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -1853,18 +1854,26 @@
   // satır ayrıştırma: baştaki sayılar (sıra no, okul no), ardından ad soyad; cinsiyet vb. atılır
   const LETTER = /^[A-Za-zÇĞİÖŞÜÂÎÛçğıöşüâîû'’.\-]+$/;
   const DROP = new Set(["ERKEK", "KIZ", "KADIN", "E", "K", "BAY", "BAYAN"]);
+  const HEAD = new Set(["SINIF", "SINIFI", "ŞUBESİ", "ŞUBE", "LİSTESİ", "LİSTE", "UİSTESİ", "TOPLAM", "SAYISI", "ÖĞRENCİ", "MÜDÜR", "MÜDÜRLÜĞÜ", "ORTAOKULU", "OKULU", "VALİLİĞİ", "ÖĞRETMENİ", "BAŞKANI"]);
   function parseLine(line) {
     const t = line.replace(/[|_;,\t]+/g, " ").replace(/\s+/g, " ").trim();
     const m = /^((?:\d{1,6}[.)]?\s+)+)(.+)$/.exec(t); if (!m) return null;
     const nums = m[1].trim().split(/\s+/).map(x => x.replace(/\D/g, "")).filter(Boolean);
     const no = nums.length >= 2 ? nums[1] : nums[0];
+    const toks = m[2].split(" ");
+    // e-Okul listesi büyük harf: satırda en az iki büyük harfli kelime varsa küçük harfli parazitler ("o", "Oo") atılır
+    const upper = toks.filter(w => LETTER.test(w) && w.length >= 2 && w === w.toLocaleUpperCase("tr")).length >= 2;
     const words = [];
-    for (const w of m[2].split(" ")) {
+    for (const w of toks) {
       if (/\d/.test(w)) { if (words.length >= 2) break; else continue; }   // ad soyaddan sonra gelen sayılar (tarih vb.) kesilir
-      if (!LETTER.test(w) || DROP.has(w.toLocaleUpperCase("tr"))) continue;
+      if (DROP.has(w.toLocaleUpperCase("tr")) && w.length > 1) { if (words.length) break; else continue; }   // cinsiyet sütunu: satır sonu
+      if (!LETTER.test(w) || w.replace(/[.'’\-]/g, "").length < 2) continue;
+      if (upper && w !== w.toLocaleUpperCase("tr")) continue;
       words.push(w.toLocaleUpperCase("tr"));
     }
-    return words.length && no ? { no, name: words.join(" ") } : null;
+    // emin: satırda sıra no + okul no birlikte okundu (tek sayı okunduysa sıra no mu okul no mu belli değil)
+    if (words.some(w => HEAD.has(w.replace(/[^A-ZÇĞİÖŞÜ]/g, "")))) return null;   // başlık / alt bilgi satırı ("6. Sınıf / A Şubesi Sınıf Listesi")
+    return words.length && no ? { no, name: words.join(" "), emin: nums.length >= 2 } : null;
   }
   function parseText(txt) { const out = []; txt.split(/\r?\n/).forEach(l => { const r = parseLine(l); if (r) out.push(r); }); return out; }
   // tablo (Excel/CSV): başlık satırında Öğrenci No / Adı / Soyadı sütunları aranır; bulunamazsa satırlar metin gibi okunur
@@ -1887,6 +1896,40 @@
     }
     return parseText(rows.map(r => r.map(norm).join(" ")).join("\n"));
   }
+  // OCR öncesi: gri ton, ~3000 px genişlik, yerel eşikleme (gölge / ışık farkı gider) ve tablo çizgilerinin silinmesi
+  // (yatay çizgiler harf sanılıp satıra "o", "z" gibi parazit ekliyordu)
+  async function ocrPrep(file) {
+    const bmp = await createImageBitmap(file);
+    let sc = 3000 / bmp.width; if (bmp.width * sc * bmp.height * sc > 16e6) sc = Math.sqrt(16e6 / (bmp.width * bmp.height));
+    const w = Math.round(bmp.width * sc), h = Math.round(bmp.height * sc);
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bmp, 0, 0, w, h); if (bmp.close) bmp.close();
+    const im = x.getImageData(0, 0, w, h), d = im.data, n = w * h, g = new Uint8Array(n);
+    for (let i = 0; i < n; i++) g[i] = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8;
+    const W1 = w + 1, ii = new Uint32Array(W1 * (h + 1));
+    for (let y = 0; y < h; y++) { let rs = 0; for (let xx = 0; xx < w; xx++) { rs += g[y * w + xx]; ii[(y + 1) * W1 + xx + 1] = ii[y * W1 + xx + 1] + rs; } }
+    const r = Math.max(8, Math.round(w / 120)), dark = new Uint8Array(n);
+    for (let y = 0; y < h; y++) {
+      const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+      for (let xx = 0; xx < w; xx++) {
+        const x0 = Math.max(0, xx - r), x1 = Math.min(w, xx + r + 1);
+        const S = ii[y1 * W1 + x1] - ii[y0 * W1 + x1] - ii[y1 * W1 + x0] + ii[y0 * W1 + x0];
+        if (g[y * w + xx] * (y1 - y0) * (x1 - x0) < S * 0.85) dark[y * w + xx] = 1;
+      }
+    }
+    const kill = new Uint8Array(n), minRun = Math.round(w * 0.06);
+    for (let y = 0; y < h; y++) {
+      let s = -1;
+      for (let xx = 0; xx <= w; xx++) {
+        const on = xx < w && dark[y * w + xx];
+        if (on && s < 0) s = xx;
+        else if (!on && s >= 0) { if (xx - s >= minRun) for (let yy = Math.max(0, y - 1); yy <= Math.min(h - 1, y + 1); yy++) kill.fill(1, yy * w + s, yy * w + xx); s = -1; }
+      }
+    }
+    for (let i = 0; i < n; i++) { const v = dark[i] && !kill[i] ? 0 : 255; d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255; }
+    x.putImageData(im, 0, 0);
+    return c;
+  }
   function loadScript(src) { return new Promise((res, rej) => { const e = document.createElement("script"); e.src = src; e.onload = res; e.onerror = () => rej(new Error("indirilemedi: " + src)); document.head.appendChild(e); }); }
 
   // düzenleme penceresi
@@ -1894,11 +1937,11 @@
   function lstDraw() {
     const box = $("#lstRows"); box.innerHTML = "";
     lstW.forEach((st, i) => {
-      const d = document.createElement("div"); d.className = "lr" + (hasPhoto(curCls(), st.no) ? " done" : "");
+      const d = document.createElement("div"); d.className = "lr" + (hasPhoto(curCls(), st.no) ? " done" : "") + (st.kontrol ? " chk" : "");
       d.innerHTML = '<span></span><input class="ln" inputmode="numeric" placeholder="No"><input class="lm" placeholder="AD SOYAD"><button type="button" aria-label="Sil">✕</button>';
       d.children[0].textContent = i + 1;
       const [ , n, m, x] = d.children; n.value = st.no; m.value = st.name;
-      n.oninput = () => { st.no = n.value.replace(/\D/g, ""); };
+      n.oninput = () => { st.no = n.value.replace(/\D/g, ""); st.kontrol = false; d.classList.remove("chk"); };
       m.oninput = () => { st.name = m.value.toLocaleUpperCase("tr"); };
       x.onclick = () => { lstW.splice(i, 1); lstDraw(); };
       box.appendChild(d);
@@ -1919,7 +1962,7 @@
   };
   const lstClose = () => { $("#lst").hidden = true; document.body.style.overflow = ""; };
   $("#lstSave").onclick = () => {
-    const L = lstW.filter(s => s.no && s.name);
+    const L = lstW.filter(s => s.no && s.name).map(s => ({ no: s.no, name: s.name }));
     lstPut(curCls(), L);
     try { localStorage.setItem("bgr-adbicim", $("#lstFmt").value); } catch (e) {}
     lstClose(); lstBtnTxt(); msg(L.length ? L.length + " öğrencilik liste kaydedildi. Uygulama içinden çekimde sıradaki öğrencinin adıyla kaydedilir." : "Liste boş kaydedildi.");
@@ -1946,14 +1989,24 @@
     $("#lstMsg").textContent = "Okuma modeli hazırlanıyor (ilk seferde ~5 MB indirilir)...";
     try {
       if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
-      // okunurluk için: en az 2000 px genişlik, gri ton
-      const bmp = await createImageBitmap(f), sc = Math.min(3, Math.max(1, 2000 / bmp.width));
-      const c = document.createElement("canvas"); c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
-      const x = c.getContext("2d"); x.filter = "grayscale(1) contrast(1.4)"; x.drawImage(bmp, 0, 0, c.width, c.height);
-      const w = await Tesseract.createWorker("tur", 1, { logger: m => { if (m.status === "recognizing text") $("#lstMsg").textContent = "Liste okunuyor... %" + Math.round(m.progress * 100); } });
-      await w.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
-      const { data } = await w.recognize(c); await w.terminate();
-      lstMerge(parseText(data.text), "Fotoğraf");
+      $("#lstMsg").textContent = "Fotoğraf hazırlanıyor...";
+      const c = await ocrPrep(f);
+      let pass = "";
+      const w = await Tesseract.createWorker("tur", 1, { logger: m => { if (m.status === "recognizing text") $("#lstMsg").textContent = "Liste okunuyor" + pass + "... %" + Math.round(m.progress * 100); } });
+      // iki okuma: blok (6) ve sütun (4) düzeni; sonuçlar ada göre birleştirilir, sıra no + okul no birlikte okunan tercih edilir
+      const res = [];
+      for (const psm of ["6", "4"]) {
+        pass = psm === "6" ? " (1/2)" : " (2/2)";
+        await w.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" });
+        const { data } = await w.recognize(c); res.push(parseText(data.text));
+      }
+      await w.terminate();
+      const by = new Map();
+      for (const L of res) for (const r of L) { const k = r.name, o = by.get(k); if (!o || (!o.emin && r.emin)) by.set(k, r); }
+      const out = [...by.values()].sort((a, b) => (+a.no) - (+b.no));
+      const unsure = out.filter(r => !r.emin).length;
+      lstMerge(out.map(r => ({ no: r.no, name: r.name, kontrol: !r.emin })), "Fotoğraf");
+      if (unsure) $("#lstMsg").textContent += " Sarı satırların numarasını kontrol et.";
     } catch (er) { console.error(er); $("#lstMsg").textContent = "Okunamadı: " + (er.message || er) + " (internet gerekli ilk seferde)"; }
   };
   lstBtnTxt();
