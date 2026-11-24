@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.22">
+<meta name="version" content="3.22.1">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -74,7 +74,8 @@
   #lstMsg{font-size:.8rem;color:#94a3b8;margin-top:6px;min-height:1.2em}
   #camStu{display:flex;align-items:center;gap:8px;margin:0 0 8px;background:#0c4a6e;border:1px solid #38bdf8;border-radius:12px;padding:6px 8px;color:#e0f2fe;font-size:.9rem}
   #camStu[hidden]{display:none}
-  #camStu b{flex:1;text-align:center;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #camStu select{flex:1;min-width:0;text-align:center;text-align-last:center;font:inherit;font-weight:600;background:transparent;color:#e0f2fe;border:0;padding:6px 2px;appearance:none;-webkit-appearance:none;cursor:pointer;text-overflow:ellipsis}
+  #camStu select option{background:#0f172a;color:#e2e8f0}
   #camStu button{flex:0 0 38px;height:34px;border-radius:8px;border:1px solid #38bdf8;background:#075985;color:#fff;font-size:1rem;cursor:pointer}
   .edbox{width:100%;max-width:420px}
   .edtitle{font-size:.85rem;color:var(--mut);text-align:center;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -97,18 +98,20 @@
   #temaDugme,.paylasBtn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;margin:-6px 0 -6px 8px;vertical-align:middle;border:1px solid var(--line);background:var(--card);color:var(--mut);border-radius:9px;cursor:pointer;font:inherit}
   #temaDugme svg,.paylasBtn svg{width:18px;height:18px;display:block}
   /* uygulama içinden çekim */
-  #cam{position:fixed;inset:0;background:#020617;z-index:40;display:flex;align-items:center;justify-content:center;padding:10px;overflow:auto}
+  /* kamera ekranı: telefon ekranına tam sığar (Firefox'ta adres çubuğu da hesaba katılır, 100dvh), görüntü kalan yeri doldurur */
+  #cam{position:fixed;inset:0;height:100vh;height:100dvh;background:#020617;z-index:40;display:flex;justify-content:center;padding:6px 8px;box-sizing:border-box;overflow:hidden}
   #cam[hidden]{display:none}
-  .cambox{width:100%;max-width:460px}
+  .cambox{width:100%;max-width:460px;height:100%;display:flex;flex-direction:column;min-height:0}
+  .cambox>*{flex:0 0 auto}
   .camtop{margin-bottom:8px;flex-wrap:nowrap}
   .camtop select{flex:1;min-width:0}
   .camtop .btn{width:auto;padding:10px 14px}
   #camCnt{color:var(--mut);font-size:.8rem;white-space:nowrap}
-  .camview{position:relative;display:table;margin:0 auto}
+  .camview{position:relative;flex:1 1 auto!important;min-height:0;display:flex;align-items:center;justify-content:center}
   .camview[hidden]{display:none}
-  #camV{display:block;max-width:100%;max-height:62vh;border-radius:8px;background:#000}
+  #camV{display:block;max-width:100%;max-height:100%;border-radius:8px;background:#000}
   #camV.mir{transform:scaleX(-1)}
-  #camC{display:block;max-width:100%;max-height:62vh;border-radius:6px;background:#fff}
+  #camC{display:block;max-width:100%;max-height:100%;border-radius:6px;background:#fff}
   .camguide{position:absolute;left:50%;top:50%;width:0;height:0;transform:translate(-50%,-50%);border:2px dashed rgba(56,189,248,.75);border-radius:8px;pointer-events:none}
   .camguide::after{content:"";position:absolute;left:25%;width:50%;top:12%;height:52%;border:2px solid rgba(74,222,128,.7);border-radius:50%}
   .camguide.ok{border:3px solid #4ade80}.camguide.ok::after{border-color:#4ade80;border-width:3px}
@@ -116,7 +119,7 @@
   #camSetBtn{width:auto;padding:10px 12px}
   .clsrow{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:.85rem;color:var(--mut)}
   .clsrow input{flex:1;min-width:0;padding:9px;border-radius:10px;background:var(--bg);color:var(--txt);border:1px solid var(--line);font:inherit}
-  .camopts{display:flex;gap:8px;justify-content:center;margin-top:6px}
+  .camopts{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:6px}
   .camopts button{background:#1e293b;color:#cbd5e1;border:1px solid #334155;border-radius:999px;padding:6px 12px;font:inherit;font-size:.78rem;cursor:pointer}
   .camopts button.on{background:#0c4a6e;border-color:#38bdf8;color:#e0f2fe}
   .camopts input{width:84px;padding:6px 10px;border-radius:999px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;font:inherit;font-size:.78rem;text-align:center}
@@ -132,13 +135,13 @@
   #camFocus{position:absolute;width:56px;height:56px;margin:-28px 0 0 -28px;border:2px solid #fbbf24;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .3s}
   #camZoomBox{display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--mut);margin:4px 0 0}
   #camZoomBox[hidden]{display:none}
-  #camInfo{min-height:2.6em;font-size:.85rem;color:var(--txt)}
+  #camInfo{min-height:2.4em;font-size:.82rem;color:var(--txt);margin:4px 0 0}
   #camInfo.warn{color:#fbbf24}#camInfo.good{color:var(--ok)}
-  .shutter{display:block;margin:6px auto 0;width:74px;height:74px;border-radius:50%;border:5px solid #fff;background:var(--acc);cursor:pointer}
+  .shutter{display:block;margin:2px auto 0;width:64px;height:64px;border-radius:50%;border:5px solid #fff;background:var(--acc);cursor:pointer}
   .shutter:disabled{opacity:.4}
   #camName{width:100%;padding:10px;border-radius:10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;font:inherit;margin-top:4px}
-  #camRevBtns .row{margin-top:8px;flex-wrap:nowrap}
-  #camRevBtns .row .btn{flex:1;padding:12px}
+  #camRevBtns .row{margin-top:6px;flex-wrap:nowrap}
+  #camRevBtns .row .btn{flex:1;padding:10px}
   /* telefon yan çevrilince: görüntü solda, düğmeler sağda */
   @media (orientation:landscape) and (max-height:600px){
     .cambox{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 230px;grid-template-rows:auto 1fr auto;column-gap:12px;align-items:center}
@@ -148,13 +151,14 @@
     #camInfo{grid-column:2;grid-row:2}
     #camStu{grid-column:2;grid-row:1;align-self:end}
     #camLiveBtns,#camRevBtns{grid-column:2;grid-row:3}
-    #camV,#camC{max-height:calc(100vh - 24px)}
+    .cambox{height:100%}
+    #camLive,#camRev{height:100%}
     .shutter{width:62px;height:62px}
   }
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.22</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.22.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -303,12 +307,12 @@
 <div id="cam" hidden>
   <div class="cambox">
     <div class="row camtop"><select id="camSel" aria-label="Kamera"></select><span id="camCnt"></span><button class="btn sec" id="camSetBtn" type="button" aria-label="Kamera ayarları" title="Kamera ayarları">⚙</button><button class="btn sec" id="camClose" type="button">Bitir</button></div>
-    <div id="camStu" hidden><button type="button" id="stuPrev" aria-label="Önceki öğrenci">◀</button><b id="stuName"></b><button type="button" id="stuNext" aria-label="Sonraki öğrenci (gelmedi)">▶</button></div>
+    <div id="camStu" hidden><button type="button" id="stuPrev" aria-label="Önceki öğrenci">◀</button><select id="stuSel" aria-label="Öğrenci seç"></select><button type="button" id="stuNext" aria-label="Sonraki öğrenci (gelmedi)">▶</button></div>
     <div class="camview" id="camLive"><video id="camV" playsinline muted autoplay></video><div class="camguide"></div><div id="camFocus"></div></div>
     <div class="camview" id="camRev" hidden><canvas id="camC" width="399" height="513"></canvas></div>
     <div class="edhint" id="camInfo"></div>
     <div id="camLiveBtns"><div id="camSetBox" hidden></div><div id="camZoomBox" hidden>Yakınlaştır <input type="range" id="camZoom" style="flex:1"><b id="camZv"></b></div><button class="shutter" id="camShot" type="button" aria-label="Çek"></button>
-      <div class="camopts"><button type="button" id="optAuto">⏱ Otomatik çek</button><button type="button" id="optBurst">🎞 Seri (3 kare)</button><button type="button" id="optFast">⚡ Hızlı (sonra incele)</button><input id="camCls" type="text" placeholder="Sınıf" autocomplete="off" aria-label="Sınıf"></div></div>
+      <div class="camopts"><button type="button" id="optAuto" title="Yüz uygun olunca kendiliğinden çeker">⏱ Oto çek</button><button type="button" id="optBurst" title="3 kare çekip en iyisini seçer">🎞 Seri</button><button type="button" id="optFast" title="Önizlemesiz, doğrudan sıraya alır">⚡ Hızlı</button><input id="camCls" type="text" placeholder="Sınıf" autocomplete="off" aria-label="Sınıf"></div></div>
     <div id="camRevBtns" hidden>
       <input id="camName" type="text" placeholder="Ad / okul no (isteğe bağlı, dosya adı olur)" autocomplete="off">
       <div class="row"><button class="btn sec" id="camRetake" type="button">↺ Tekrar çek</button><button class="btn sec" id="camEdit" type="button">✎ Düzenle</button></div>
@@ -1389,7 +1393,7 @@
   camV.addEventListener("pointerdown", e => {
     if (!camFocusOk || !cam.track) return;
     const r = camV.getBoundingClientRect(); let x = (e.clientX - r.left) / r.width; const y = (e.clientY - r.top) / r.height;
-    const f = $("#camFocus"); f.style.left = (e.clientX - r.left) + "px"; f.style.top = (e.clientY - r.top) + "px"; f.style.opacity = 1;
+    const vr = $("#camLive").getBoundingClientRect(), f = $("#camFocus"); f.style.left = (e.clientX - vr.left) + "px"; f.style.top = (e.clientY - vr.top) + "px"; f.style.opacity = 1;
     setTimeout(() => { f.style.opacity = 0; }, 900);
     if (camV.classList.contains("mir")) x = 1 - x;
     const caps = cam.track.getCapabilities ? cam.track.getCapabilities() : {};
@@ -1949,14 +1953,19 @@
     const L = lstGet(curCls()), bar = $("#camStu");
     bar.hidden = !L.length || !!cam.replace; if (bar.hidden) return;
     const done = L.filter(st => hasPhoto(curCls(), st.no)).length;
-    if (cam.si === -2) { $("#stuName").textContent = "✓ Listede herkes çekildi (" + done + "/" + L.length + ")"; return; }
+    const sel = $("#stuSel");
+    sel.innerHTML = "";
+    L.forEach((st, i) => { const o = document.createElement("option"); o.value = i; o.textContent = (i + 1) + "/" + L.length + " · " + st.no + " " + st.name + (hasPhoto(curCls(), st.no) ? " ✓" : ""); sel.appendChild(o); });
+    if (cam.si === -2) { const o = document.createElement("option"); o.value = -2; o.textContent = "✓ Listede herkes çekildi (" + done + "/" + L.length + ")"; sel.appendChild(o); sel.value = "-2"; return; }
     const st = curStu(); if (!st) { cam.si = -1; stuAdvance(); return stuBar(); }
-    $("#stuName").textContent = (cam.si + 1) + "/" + L.length + " · " + st.no + " " + st.name + (hasPhoto(curCls(), st.no) ? " (çekildi)" : "");
+    sel.value = String(cam.si);
   }
   // ◀ ▶: listede elle gezin (gelmeyeni atla ya da çekileni tekrar çek)
   const stuMove = d => { const L = lstGet(curCls()); if (!L.length || cam.it || cam.proc) return; cam.si = ((cam.si < 0 ? 0 : cam.si) + d + L.length) % L.length; stuBar(); };
   $("#stuPrev").onclick = () => stuMove(-1);
   $("#stuNext").onclick = () => stuMove(1);
+  // listeden doğrudan öğrenci seç (✓ çekilmiş; çekilmiş birini seçip çekersen eski fotoğrafı değişir)
+  $("#stuSel").onchange = e => { const v = +e.target.value; if (v >= 0 && !cam.it && !cam.proc) { cam.si = v; } stuBar(); };
 
   // satır ayrıştırma: baştaki sayılar (sıra no, okul no), ardından ad soyad; cinsiyet vb. atılır
   const LETTER = /^[A-Za-zÇĞİÖŞÜÂÎÛçğıöşüâîû'’.\-]+$/;
