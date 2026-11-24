@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.24.17">
+<meta name="version" content="3.25">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -120,6 +120,21 @@
   .camguide.ok{border:3px solid #4ade80}.camguide.ok::after{border-color:#4ade80;border-width:3px}
   .camguide.bad{border-color:rgba(251,191,36,.9)}
   #camSetBtn{width:auto;padding:10px 12px}
+  #optTest.on{background:#4c1d95;border-color:#a78bfa;color:#ede9fe}
+  #testRep[hidden]{display:none}
+  #tRep{position:absolute;inset:0;z-index:5;background:rgba(2,6,23,.96);display:flex;justify-content:center;padding:8px;box-sizing:border-box}
+  #tRep[hidden]{display:none}
+  .trbox{width:100%;max-width:460px;display:flex;flex-direction:column;min-height:0;color:#e2e8f0}
+  .trbox .row{flex-wrap:nowrap;align-items:center;gap:6px}
+  .trbox .row b{flex:1;font-size:1rem}
+  .trbox .row .btn{width:auto;padding:8px 12px}
+  #tRepSum{background:#1e1b4b;border:1px solid #6d28d9;border-radius:12px;padding:8px 12px;margin:8px 0;font-size:.82rem;line-height:1.5}
+  #tRepList{flex:1;overflow:auto;min-height:0}
+  .tri{display:flex;gap:10px;border-bottom:1px solid #1e293b;padding:8px 0;font-size:.78rem;line-height:1.45}
+  .tri img{width:62px;height:80px;object-fit:cover;border-radius:6px;background:#fff;flex:0 0 auto}
+  .tri b.ok{color:#4ade80}.tri b.bad{color:#fbbf24}
+  .tri .chips span{display:inline-block;margin:2px 4px 0 0;padding:1px 7px;border-radius:999px;background:#1e293b;border:1px solid #334155}
+  .tri .chips span.bad{border-color:#d97706;color:#fde68a}
   .clsrow{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:.85rem;color:var(--mut)}
   .clsrow input{flex:1;min-width:0;padding:9px;border-radius:10px;background:var(--bg);color:var(--txt);border:1px solid var(--line);font:inherit}
   .camopts{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:6px}
@@ -161,7 +176,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.24.17</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.25</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -312,10 +327,11 @@
     <div class="row camtop"><select id="camSel" aria-label="Kamera"></select><span id="camCnt"></span><button class="btn sec" id="camSetBtn" type="button" aria-label="Kamera ayarları" title="Kamera ayarları">⚙</button><button class="btn sec" id="camClose" type="button">Bitir</button></div>
     <div id="camStu" hidden><button type="button" id="stuPrev" aria-label="Önceki öğrenci">◀</button><select id="stuSel" aria-label="Öğrenci seç"></select><button type="button" id="stuNext" aria-label="Sonraki öğrenci (gelmedi)">▶</button></div>
     <div class="camview" id="camLive"><video id="camV" playsinline muted autoplay></video><div class="camguide"></div><div id="camFocus"></div></div>
+    <div id="tRep" hidden><div class="trbox"><div class="row"><b>🧪 Deneme raporu</b><button class="btn sec" id="tRepClr" type="button">Temizle</button><button class="btn sec" id="tRepX" type="button">Kapat</button></div><div id="tRepSum"></div><div id="tRepList"></div><div class="edhint">Deneme çekimleri fotoğraf listesine ve ZIP'e eklenmez, telefona kaydedilmez.</div></div></div>
     <div class="camview" id="camRev" hidden><canvas id="camC" width="399" height="513"></canvas></div>
     <div class="edhint" id="camInfo"></div>
     <div id="camLiveBtns"><div id="camSetBox" hidden></div><div id="camZoomBox" hidden>Yakınlaştır <input type="range" id="camZoom" style="flex:1"><b id="camZv"></b></div><button class="shutter" id="camShot" type="button" aria-label="Çek"></button>
-      <div class="camopts"><button type="button" id="optAuto" title="Yüz uygun olunca kendiliğinden çeker">⏱ Oto çek</button><button type="button" id="optBurst" title="3 kare çekip en iyisini seçer">🎞 Seri</button><button type="button" id="optFast" title="Önizlemesiz, doğrudan sıraya alır">⚡ Hızlı</button><input id="camCls" type="text" placeholder="Sınıf" autocomplete="off" aria-label="Sınıf"></div></div>
+      <div class="camopts"><button type="button" id="optAuto" title="Yüz uygun olunca kendiliğinden çeker">⏱ Oto çek</button><button type="button" id="optBurst" title="3 kare çekip en iyisini seçer">🎞 Seri</button><button type="button" id="optFast" title="Önizlemesiz, doğrudan sıraya alır">⚡ Hızlı</button><button type="button" id="optTest" title="Deneme: kaydetmeden çeker, arka planı siler, her kontrolü puanlar ve rapor tutar">🧪 Deneme</button><button type="button" id="testRep" hidden>📋 Rapor</button><input id="camCls" type="text" placeholder="Sınıf" autocomplete="off" aria-label="Sınıf"></div></div>
     <div id="camRevBtns" hidden>
       <input id="camName" type="text" placeholder="Ad / okul no (isteğe bağlı, dosya adı olur)" autocomplete="off">
       <div class="row"><button class="btn sec" id="camRetake" type="button">↺ Tekrar çek</button><button class="btn sec" id="camEdit" type="button">✎ Düzenle</button></div>
@@ -717,6 +733,36 @@
       if (Math.abs(g - 1) >= 0.03) it.gain = g;
     }
   }
+  // Arka plan ayrımı (arka planlar farklı olabilir): orijinal görüntü ve maske 200 px genişliğe indirilip ölçülür.
+  // con: kişinin kenarı ile hemen dışındaki arka plan arasındaki ortalama renk farkı (düşük = arka plan saça/kıyafete benziyor)
+  // semi: yarı saydam (kararsız) maske piksellerinin opak piksellere oranı (yüksek = kenarlar bulanık / lekeli)
+  // std: arka plan parlaklığının dağılımı (yüksek = arka plan karışık, desenli)
+  // top: başın üstü görüntünün üst kenarına değiyor mu (baş kesik)
+  async function bgCheck(src, cut) {
+    const bmp = await createImageBitmap(src);
+    try {
+      const w = 200, h = Math.max(8, Math.round(cut.height * w / cut.width));
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      const x = c.getContext("2d", { willReadFrequently: true });
+      x.drawImage(bmp, 0, 0, w, h); const s = x.getImageData(0, 0, w, h).data;
+      x.clearRect(0, 0, w, h); x.drawImage(cut, 0, 0, w, h); const a = x.getImageData(0, 0, w, h).data;
+      const D = 3, dirs = [[D, 0], [-D, 0], [0, -D]];   // aşağı bakılmaz: gövde alttan kesik
+      let semi = 0, full = 0, ds = 0, dn = 0, bs = 0, bs2 = 0, bn = 0, topHit = 0;
+      for (let y = 0; y < h; y++) for (let i = 0; i < w; i++) {
+        const p = y * w + i, v = a[p * 4 + 3];
+        if (v > 215) { full++; if (y < 2) topHit++; } else if (v > 40) semi++;
+        if (v < 25) { const l = 0.299 * s[p * 4] + 0.587 * s[p * 4 + 1] + 0.114 * s[p * 4 + 2]; bs += l; bs2 += l * l; bn++; }
+        else if (v > 220) for (const [dx, dy] of dirs) {
+          const xx = i + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w) continue;
+          const q = yy * w + xx; if (a[q * 4 + 3] >= 25) continue;
+          ds += Math.hypot(s[p * 4] - s[q * 4], s[p * 4 + 1] - s[q * 4 + 1], s[p * 4 + 2] - s[q * 4 + 2]); dn++;
+        }
+      }
+      const m = bn ? bs / bn : 0;
+      return { con: dn > 20 ? ds / dn : null, semi: full ? semi / full : 0, std: bn > 50 ? Math.sqrt(Math.max(0, bs2 / bn - m * m)) : 0, top: topHit >= 3 };
+    } finally { if (bmp.close) bmp.close(); }
+  }
+  const BGQ = { con: 30, semi: 0.15, std: 35 };   // uyarı eşikleri (Deneme raporundaki değerlere bakılarak ayarlanabilir)
   function warnsOf(it) {
     const w = [];
     if (!it.face) { if (landmarker) w.push("yüz bulunamadı"); return w; }
@@ -732,6 +778,12 @@
     if (!it.man && it.zoomUp > 1.1) w.push("çok yakınlaştırıldı");
     if (q.blur < 10 || (blurMed && q.blur < 0.4 * blurMed)) w.push("bulanık");
     if (q.glare > 0.03) w.push("gözlükte parlama");
+    const b = it.bgq;
+    if (b) {
+      if (b.top) w.push("başın üstü kesik");
+      if (b.con !== null && b.con < BGQ.con) w.push("arka plan saça/kıyafete çok benziyor");
+      if (b.semi > BGQ.semi) w.push("kenar ayrımı zayıf");
+    }
     return w;
   }
   function updateWarnBox() {
@@ -1208,7 +1260,7 @@
     return modelsP;
   }
   // tek fotoğraf: arka planı sil, kişiyi ve yüzü ölç
-  async function processItem(it) {
+  async function processItem(it, test) {
     const src = await prepare(it.file);
     const out = await withTimeout(cutout(src), 90000);
     it.cut = await createImageBitmap(out);
@@ -1217,7 +1269,8 @@
     it.info = analyze(it.cut);
     try { it.face = await withTimeout(findFace(src), 15000); } catch (e) { console.warn("yüz", e); it.face = null; }
     it.lum = it.face ? faceLum(it) : 0;
-    persistLater(it);   // arka planı silinmiş hali saklanır (PNG kodlama yavaş: işler bitince, sırayla)
+    try { it.bgq = await bgCheck(src, it.cut); } catch (e) { console.warn("arka plan ölçümü", e); it.bgq = null; }
+    if (!test) persistLater(it);   // arka planı silinmiş hali saklanır (PNG kodlama yavaş: işler bitince, sırayla)
   }
 
   // ---------- toplu işlem ----------
@@ -1323,7 +1376,7 @@
   // ---------- uygulama içinden çekim: çek, kontrol et, gerekirse tekrar çek / düzenle, sonrakine geç ----------
   const camV = $("#camV"), camC = $("#camC");
   function camStop() { if (cam.stream) cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; cam.track = null; camV.srcObject = null; }
-  function camCount() { $("#camCnt").textContent = items.length + " / 40"; }
+  function camCount() { $("#camCnt").textContent = cam.test && !cam.replace ? "🧪 " + tst.list.length + " deneme" : items.length + " / 40"; }
   function camInfo(t, cls) { const ci = $("#camInfo"); ci.className = "edhint" + (cls ? " " + cls : ""); ci.textContent = t; }
   // Kamerayı aç. Takılırsa (izin penceresi cevapsız, kamera başka sekmede / uygulamada açık, tarayıcı yüksek çözünürlüğü
   // kaldıramıyor) 10 sn sonra vazgeçilir; geç gelen akış hemen kapatılır ki kamera meşgul kalmasın.
@@ -1734,10 +1787,12 @@
   window.addEventListener("resize", camGuide);
   function camLive() {
     cam.it = null; $("#camLive").hidden = false; $("#camRev").hidden = true; $("#camLiveBtns").hidden = false; $("#camRevBtns").hidden = true;
-    $("#camShot").disabled = !cam.replace && items.length >= 40; $("#camSel").disabled = false; camCount();
+    $("#camShot").disabled = !cam.replace && !cam.test && items.length >= 40; $("#camSel").disabled = false; camCount();
+    $("#camInfo").style.whiteSpace = ""; $("#camName").hidden = false; $("#camEdit").hidden = false; testUi();
     stuBar();
     requestAnimationFrame(camGuide); liveOk = false; okRun = 0; document.querySelector(".camguide").classList.remove("ok", "bad");
     if (cam.replace) camInfo("“" + cam.replace.name + "” yeniden çekiliyor. Yüzü yeşil ovale getir.");
+    else if (cam.test) camInfo("🧪 Deneme modu: çekimler kaydedilmez. Arka plan silinir, her kontrol puanlanır ve rapora eklenir." + (tst.list.length ? " (" + tst.list.length + " deneme)" : ""));
     else if (camOpt.fast && camQ.length) camInfo("⚡ Hızlı çekim · işlenmeyi bekleyen " + camQ.length + ". Yüzü ovale getir.");
     else camInfo(items.length >= 40 ? "40 fotoğraf sınırına ulaşıldı. Bitir'e bas." : (camOpt.auto ? "Yüzü yeşil ovale getir. Uygun olunca kendiliğinden çekilir." : "Yüzü yeşil ovale getir. Uygun olunca çerçeve yeşil olur.") + " Telefonu yan tutarak da çekebilirsin.");
   }
@@ -1782,6 +1837,117 @@
     loadFace().catch(() => {});                                        // canlı yüz kontrolü için önce yüz modeli
     ensureModels().catch(e => console.warn("model ön yükleme", e));    // ilk çekim beklemesin diye modeller şimdiden hazırlanır
   }
+  // ---------- 🧪 Deneme (simülasyon) modu ----------
+  // Çekim tam işlenir (arka plan silme + kadraj) ama listeye, ZIP'e ve telefona kaydedilmez.
+  // Her kontrol ayrı puanlanır; rapor oturum boyunca tutulur. 3-5 öğrenciyle sınıf ortamını sınamak için.
+  const tst = { list: [], cur: null, seq: 0 };
+  function testUi() {
+    $("#optTest").classList.toggle("on", !!cam.test);
+    $("#optTest").hidden = !!cam.replace;
+    $("#testRep").hidden = !!cam.replace || !(cam.test || tst.list.length);
+    $("#testRep").textContent = "📋 Rapor" + (tst.list.length ? " (" + tst.list.length + ")" : "");
+  }
+  $("#optTest").onclick = () => {
+    if (cam.it || cam.proc) return;
+    cam.test = !cam.test; okRun = 0; cam.armed = true; camLive();
+  };
+  const pct = v => "%" + (Math.round(v * 1000) / 10);
+  // her kontrol: [ad, uygun mu (null: ölçülemedi), değer]
+  function testRows(it) {
+    const R = [], f = it.face, q = f && f.q, b = it.bgq;
+    R.push(["Yüz", !!f, f ? "bulundu" : "bulunamadı"]);
+    if (q) {
+      R.push(["Gözler", q.blink <= 0.5, q.blink <= 0.5 ? "açık" : "kapalı"]);
+      R.push(["Baş duruşu", q.tilt <= 0.17 && Math.abs(q.yaw) <= 0.2, "eğim " + Math.round(q.tilt * 57.3) + "°, dönüş " + pct(Math.abs(q.yaw))]);
+      R.push(["Ağız", q.jaw <= 0.35, q.jaw <= 0.35 ? "kapalı" : "açık"]);
+      R.push(["Yüz boyu", q.small >= 0.07, pct(q.small) + " (en az %7)"]);
+      R.push(["Netlik", q.blur >= 10, Math.round(q.blur) + " (en az 10)"]);
+      R.push(["Gözlük parlaması", q.glare <= 0.03, pct(q.glare) + " (en çok %3)"]);
+    }
+    if (it.lum > 0) R.push(["Yüz ışığı", it.lum >= 95 && it.lum <= 190, Math.round(it.lum) + "/255 (95-190)"]);
+    if (f) {
+      R.push(["Kadraj boşluğu", !(it.gap >= 0.03), pct(it.gap || 0)]);
+      R.push(["Baş ortada", !(Math.abs(it.headOff || 0) > 0.06), pct(Math.abs(it.headOff || 0)) + " kaçık"]);
+    }
+    if (b) {
+      R.push(["Baş üstü", !b.top, b.top ? "kesik" : "tam"]);
+      R.push(["Arka plan ayrımı", b.con === null ? null : b.con >= BGQ.con, b.con === null ? "ölçülemedi" : Math.round(b.con) + " renk farkı (en az " + BGQ.con + ")"]);
+      R.push(["Kenar temizliği", b.semi <= BGQ.semi, pct(b.semi) + " kararsız (en çok " + pct(BGQ.semi) + ")"]);
+      R.push(["Arka plan düzlüğü", b.std <= BGQ.std, Math.round(b.std) + " (en çok " + BGQ.std + ")"]);
+    }
+    return R;
+  }
+  async function testShot(c, t0) {
+    camInfo("🧪 Deneme işleniyor: arka plan siliniyor, kontroller yapılıyor...");
+    const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.97));
+    const it = { file: new File([blob], "deneme.jpg", { type: "image/jpeg" }), name: "deneme", cut: null, info: null, man: null, test: true };
+    const r = { n: ++tst.seq, err: "", rows: [], warn: [], img: "", sec: 0 };
+    try {
+      await ensureModels();
+      await processItem(it, true);
+      const x = camC.getContext("2d"); x.clearRect(0, 0, camC.width, camC.height);
+      x.drawImage(render(it, camC.width, camC.height), 0, 0);   // tam kadraj: boşluk ve ortalama ölçülür
+      r.img = camC.toDataURL("image/jpeg", 0.7);
+      r.rows = testRows(it); r.warn = warnsOf(it);
+      if (it.lum > 0 && (it.lum < 95 || it.lum > 190)) r.warn.push(it.lum < 95 ? "yüz karanlık" : "yüz çok parlak");
+    } catch (e) { console.error(e); r.err = e.message || String(e); }
+    if (it.cut && it.cut.close) it.cut.close();
+    r.sec = (performance.now() - t0) / 1000;
+    tst.cur = r; it.cut = null; cam.it = it;
+    cam.proc = false; busy = false;
+    $("#camLive").hidden = true; $("#camRev").hidden = false; $("#camLiveBtns").hidden = true; $("#camRevBtns").hidden = false;
+    $("#camName").hidden = true; $("#camEdit").hidden = true;
+    $("#camNext").textContent = "✓ Rapora ekle, sonraki deneme";
+    $("#camInfo").style.whiteSpace = "pre-line";
+    if (r.err) { camInfo("⚠ Deneme işlenemedi: " + r.err, "warn"); return; }
+    const lines = r.rows.map(([n, ok, v]) => (ok === null ? "·" : ok ? "✓" : "✗") + " " + n + ": " + v).join("\n");
+    camInfo((r.warn.length ? "⚠ " + r.warn.join(", ") : "✓ Tüm kontroller uygun") + " · " + r.sec.toFixed(1) + " sn\n" + lines, r.warn.length ? "warn" : "good");
+    camCount();
+  }
+  const TIPS = {
+    "bulanık": "telefonu sabit tut, 🎞 Seri açık kalsın, ışığı artır",
+    "gözler kapalı": "🎞 Seri açık kalsın; öğrenciye 'gözler açık' de",
+    "arka plan saça/kıyafete çok benziyor": "öğrenciyi farklı renkli bir zeminin önüne al (koyu saç için açık duvar)",
+    "kenar ayrımı zayıf": "düz bir duvar önünde çek ya da Ayarlar'dan diğer arka plan motorunu dene",
+    "gözlükte parlama": "ışığın açısını değiştir ya da başını hafif eğsin",
+    "yüz karanlık": "pencereye dön ya da ⚙'den feneri aç",
+    "yüz çok parlak": "doğrudan güneş / flaş ışığından uzaklaş",
+    "başın üstü kesik": "biraz uzaklaş ya da telefonu yukarı kaldır",
+    "kenarda boşluk": "biraz yaklaş ya da öğrenciyi ortala"
+  };
+  function testReport() {
+    const L = tst.list, sum = $("#tRepSum"), box = $("#tRepList");
+    box.textContent = "";
+    if (!L.length) { sum.textContent = "Henüz deneme yok. 🧪 Deneme açıkken çek, sonuçta “Rapora ekle”ye bas."; return; }
+    const ok = L.filter(r => !r.err && !r.warn.length).length, cnt = {};
+    L.forEach(r => r.warn.forEach(w => { const k = w.replace(/ %\d+$/, ""); cnt[k] = (cnt[k] || 0) + 1; }));
+    const top = Object.entries(cnt).sort((a, b) => b[1] - a[1]);
+    const avg = L.reduce((a, r) => a + r.sec, 0) / L.length;
+    const cons = L.map(r => r.rows.find(x => x[0] === "Arka plan ayrımı")).filter(Boolean).map(x => parseInt(x[2])).filter(v => !isNaN(v));
+    sum.textContent = "";
+    const add = t => { const d = document.createElement("div"); d.textContent = t; sum.appendChild(d); return d; };
+    add(L.length + " deneme · " + ok + " tanesi sorunsuz · ortalama işlem " + avg.toFixed(1) + " sn").style.fontWeight = "600";
+    if (cons.length) add("Arka plan ayrımı: en düşük " + Math.min(...cons) + ", en yüksek " + Math.max(...cons) + " (uyarı eşiği " + BGQ.con + ")");
+    const er = L.filter(r => r.err).length;
+    if (er) add("⚠ " + er + " deneme işlenemedi (internet / model): bağlantıyı kontrol edip tekrar dene.");
+    if (ok === L.length) add("✓ Bu ortam uygun görünüyor; gerçek çekime geçebilirsin (🧪 Deneme'yi kapat).");
+    top.slice(0, 4).forEach(([k, n]) => { const t = Object.keys(TIPS).find(x => k.startsWith(x)); add("⚠ " + k + " (" + n + "/" + L.length + ")" + (t ? " → " + TIPS[t] : "")); });
+    L.slice().reverse().forEach(r => {
+      const d = document.createElement("div"); d.className = "tri";
+      if (r.img) { const im = new Image(); im.src = r.img; d.appendChild(im); }
+      const t = document.createElement("div");
+      const h = document.createElement("b"); h.className = r.err || r.warn.length ? "bad" : "ok";
+      h.textContent = "#" + r.n + " " + (r.err ? "⚠ işlenemedi" : r.warn.length ? "⚠ " + r.warn.join(", ") : "✓ uygun") + " · " + r.sec.toFixed(1) + " sn";
+      t.appendChild(h);
+      const ch = document.createElement("div"); ch.className = "chips";
+      r.rows.forEach(([n, okk, v]) => { const s = document.createElement("span"); if (okk === false) s.className = "bad"; s.textContent = n + ": " + v; ch.appendChild(s); });
+      t.appendChild(ch); d.appendChild(t); box.appendChild(d);
+    });
+  }
+  $("#testRep").onclick = () => { testReport(); $("#tRep").hidden = false; };
+  $("#tRepX").onclick = () => { $("#tRep").hidden = true; };
+  $("#tRepClr").onclick = () => { tst.list = []; testReport(); testUi(); camCount(); };
+
   // sırayla: kayıtlı kamera, arka kamera, en basit istek (yalnız "bir kamera") — hepsi olmazsa nedeni ve Tekrar dene
   // Kamera açma denemeleri. Firefox (Android) çok kameralı telefonlarda (S25: geniş, ultra geniş, tele) bazı arka
   // kameraları ya da bazı çözünürlükleri açamıyor ("Starting videoinput failed"). Sırayla denenir:
@@ -1818,6 +1984,7 @@
     return false;
   }
   function closeCam() {
+    tst.cur = null; $("#tRep").hidden = true;
     camStop(); cam.on = false; cam.it = null; $("#cam").hidden = true; document.body.style.overflow = "";
     if (cam.replace && cam.replace.url && !items.includes(cam.replace)) URL.revokeObjectURL(cam.replace.url);
     cam.replace = null; camAfter();
@@ -1832,10 +1999,11 @@
   $("#camShot").onclick = async () => {
     if (cam.retry && !cam.track) { cam.retry = false; camInfo("Kamera açılıyor..."); if (await camOpenTry()) { camLive(); loadFace().catch(() => {}); } return; }
     const rep = cam.replace;
-    if (cam.proc || busy || !cam.track || (!rep && items.length >= 40)) return;
+    if (cam.proc || busy || !cam.track || (!rep && !cam.test && items.length >= 40)) return;
     if (!camV.videoWidth || !camV.videoHeight) return;
     cam.proc = true; busy = true; token++; cam.armed = false;   // aynı öğrenci otomatik olarak tekrar çekilmesin
     $("#camShot").disabled = true; $("#camSel").disabled = true;
+    const t0 = performance.now(), test = cam.test && !rep;
     let rot = camRot();
     if (rot && landmarker && !faceIn(grab(rot, 480)) && faceIn(grab(360 - rot, 480))) { setFlip(!rotFlip); rot = 360 - rot; }   // yön ters çıktıysa düzelt
     if (navigator.vibrate) try { navigator.vibrate(30); } catch (e) {}
@@ -1843,6 +2011,7 @@
     // çekilen kare işlenirken ekranda dondurulmuş görünür
     $("#camLive").hidden = true; $("#camRev").hidden = false;
     { const x = camC.getContext("2d"), s = Math.max(camC.width / c.width, camC.height / c.height); x.fillStyle = "#000"; x.fillRect(0, 0, camC.width, camC.height); x.drawImage(c, (camC.width - c.width * s) / 2, (camC.height - c.height * s) / 2, c.width * s, c.height * s); }
+    if (test) return testShot(c, t0);
     camInfo("İşleniyor...");
     const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.97));
     const stu = rep ? null : curStu();   // listeden sıradaki öğrenci
@@ -1936,6 +2105,7 @@
   }
   $("#camRetake").onclick = () => {
     const it = cam.it; if (!it) return camLive();
+    if (it.test) { tst.cur = null; cam.armed = true; return camLive(); }   // deneme atılır, rapora girmez
     cam.armed = true;   // tekrar çekimde aynı öğrenci otomatik çekilebilir
     if (cam.replace) { camSwap(it, cam.replace); if (it.url) URL.revokeObjectURL(it.url); }   // eskisi geri gelir, yeni çekim bekler
     else { if (!it.stu && it.file.name === "cekim_" + String(cam.seq).padStart(2, "0") + ".jpg") cam.seq--; camRemove(it); }   // numara boşa gitmesin
@@ -1967,7 +2137,9 @@
     items.filter(i => i !== it && (i.cls || "") === (it.cls || "") && i.stu === it.stu).forEach(camRemove);
   }
   $("#camNext").onclick = () => {
-    const it = cam.it; camQueue(it);
+    const it = cam.it;
+    if (it && it.test) { if (tst.cur) tst.list.push(tst.cur); tst.cur = null; camLive(); camInfo("✓ Rapora eklendi (" + tst.list.length + " deneme). Sıradaki öğrenciyi ovale getir.", "good"); return; }
+    camQueue(it);
     if (cam.replace) closeCam();
     else { stuDedupe(); stuAdvance(); camLive(); if (camQ.length) camInfo("✓ Kaydedildi: " + (it ? it.name : "") + " · arkada işlenen " + camQ.length + ". Yüzü ovale getir.", "good"); }
   };
@@ -2083,7 +2255,7 @@
   const curStu = () => { const L = lstGet(curCls()); return cam.si >= 0 && L[cam.si] ? L[cam.si] : null; };
   function stuBar() {
     const L = lstGet(curCls()), bar = $("#camStu");
-    bar.hidden = !L.length || !!cam.replace; if (bar.hidden) return;
+    bar.hidden = !L.length || !!cam.replace || cam.test; if (bar.hidden) return;
     const done = L.filter(st => hasPhoto(curCls(), st.no)).length;
     const sel = $("#stuSel");
     sel.innerHTML = "";
