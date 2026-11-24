@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.10
+// @version      0.3.11
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -127,7 +127,7 @@
         const i = n.matches('input') ? n : n.querySelector('input');
         const v = ((i ? i.value : n.textContent) || '').trim();
         if (/^\d{1,6}$/.test(v)) return { no: v, kaynak: 'Okul No alanı' };
-        if (v) break;
+        if (v && !/^[:：\s]+$/.test(v)) break;   // aradaki ":" hücresi atlanır
       }
     }
     for (const d of belgeler()) {
@@ -205,8 +205,9 @@
   function kaydetDugmeleri() {
     const satirlar = listeSatirlari().map(r => r.tr), listede = b => satirlar.some(tr => tr.contains(b));
     const t = tanitilanKaydet(); if (t && !listede(t)) return [t];
-    const adres = belgeler().flatMap(d => [...d.querySelectorAll('a,input[type=image],img[onclick],button')])
-      .filter(b => gorunur(b) && !b.closest('#vf-panel') && !listede(b) && /save|kaydet|disk/i.test(simgeAdres(b)) && !/sil|delete|iptal|cancel/i.test(simgeAdres(b) + ' ' + dugmeYazi(b)));
+    // araç çubuğundaki disket: src, arka plan resmi, id, title, alt ya da sınıfında kaydet/save/disk geçen öğe
+    const adres = belgeler().flatMap(d => [...d.querySelectorAll('a,input[type=image],img,button,[onclick],td[title],span[title],div[title]')])
+      .filter(b => gorunur(b) && !b.closest('#vf-panel') && !listede(b) && /save|kaydet|disk/i.test(simgeAdres(b) + ' ' + (b.id || '') + ' ' + (b.title || '') + ' ' + (b.alt || '') + ' ' + (typeof b.className === 'string' ? b.className : '')) && !/sil|delete|iptal|cancel/i.test(simgeAdres(b) + ' ' + dugmeYazi(b)));
     if (adres.length) return adres.map(b => (b.matches('img') && b.closest('a')) || b);
     return belgeler().flatMap(d => [...d.querySelectorAll('input[type=submit],input[type=button],input[type=image],button,a')])
       .filter(b => gorunur(b) && !b.closest('#vf-panel') && !listede(b) && /kaydet|yükle|yukle|güncelle|guncelle|save/i.test(dugmeYazi(b)) && !/sil|delete|iptal|vazgeç|vazgec/i.test(dugmeYazi(b)));
