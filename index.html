@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.21.5">
+<meta name="version" content="3.22">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -154,7 +154,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21.5</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.22</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -1658,6 +1658,7 @@
     if (w.length) camInfo("⚠ " + w.join(", ") + " · " + kb + " — tekrar çekmen önerilir.", "warn");
     else camInfo("✓ Sorun görünmüyor · " + kb + (it.man ? " · elle düzeltildi" : ""), "good");
     $("#camNext").textContent = cam.replace ? "✓ Tamam, listeye dön" : "✓ Tamam, sonraki çekim";
+    $("#camEdit").textContent = "✎ Düzenle";
     camCount();
   }
   function camRemove(it) {
@@ -1729,18 +1730,43 @@
       camInfo("✓ Kaydedildi: " + it.name + (camQ.length ? " · işlenmeyi bekleyen " + camQ.length : ""), "good");
       return;
     }
-    try {
-      await ensureModels();
-      await processItem(it);
-      await renderItem(it);
-      cam.it = it; $("#camName").value = rep ? rep.name.replace(/\.jpg$/i, "") : "";
-    } catch (e) {
-      console.error(e);
-      if (rep) { camSwap(it, rep); if (it.url) URL.revokeObjectURL(it.url); } else { camRemove(it); if (!stu) cam.seq--; }
-      cam.proc = false; busy = false; camLive(); camInfo("İşlenemedi: " + (e.message || e) + " — tekrar çek.", "warn"); camAfter(); return;
-    }
-    cam.proc = false; busy = false; camAfter(); camReview();
+    // Hızlı önizleme: arka plan silinmeden, yalnız yüz bulunup e-Okul kadrajına ortalanmış hali (yaklaşık 1 sn).
+    // "Tamam" ile fotoğraf kuyruğa girer, arka plan silme ve son kadraj arkada yapılır; sen sonraki öğrenciye geçersin.
+    let pf = null;
+    try { pf = await quickPreview(it); } catch (e) { console.warn("önizleme", e); }
+    it.pending = true; cam.it = it; $("#camName").value = rep ? rep.name.replace(/\.jpg$/i, "") : "";
+    setSt(it, "önizleme");
+    cam.proc = false; busy = false; camAfter();
+    $("#camLive").hidden = true; $("#camRev").hidden = false; $("#camLiveBtns").hidden = true; $("#camRevBtns").hidden = false;
+    $("#camNext").textContent = rep ? "✓ Tamam, listeye dön" : "✓ Tamam, sonraki çekim";
+    $("#camEdit").textContent = "✎ Orijinali düzenle";
+    const w = pf ? warnsOf({ face: pf }) : ["yüz bulunamadı"];
+    if (w.length) camInfo("⚠ " + w.join(", ") + " — tekrar çekmen önerilir. (Önizleme: arka plan Tamam'dan sonra arkada silinir.)", "warn");
+    else camInfo("✓ Sorun görünmüyor. Önizleme: arka plan Tamam'dan sonra arkada silinir.", "good");
+    camCount();
   };
+  async function quickPreview(it) {
+    await loadFace().catch(() => {});
+    const src = await prepare(it.file), bmp = await createImageBitmap(src);
+    let f = null;
+    try { if (landmarker) f = await withTimeout(findFace(src), 15000); } catch (e) { f = null; }
+    const W = camC.width, H = camC.height, x = camC.getContext("2d");
+    x.fillStyle = "#94a3b8"; x.fillRect(0, 0, W, H);
+    if (f) {
+      const k = EYE_CHIN * ($("#zoom").value / 100) * H / f.ec;
+      x.save(); x.translate(W / 2, ($("#top").value / 100) * H); x.rotate(-(f.ang || 0)); x.scale(k, k); x.translate(-f.ex, -f.ey);
+      x.drawImage(bmp, 0, 0); x.restore();
+    } else { const k = Math.min(W / bmp.width, H / bmp.height); x.drawImage(bmp, (W - bmp.width * k) / 2, (H - bmp.height * k) / 2, bmp.width * k, bmp.height * k); }
+    if (bmp.close) bmp.close();
+    return f;
+  }
+  // önizlemesi onaylanan fotoğraf arka plan işleme kuyruğuna girer
+  function camQueue(it) {
+    if (!it || !it.pending) return;
+    it.pending = false;
+    if (it.inQ || !items.includes(it)) return;
+    it.inQ = true; setSt(it, "sırada"); camQ.push(it); qPump();
+  }
   // ---------- hızlı çekim kuyruğu: çekilenler sırayla arkada işlenir ----------
   const camQ = []; let qRun = false;
   async function qPump() {
@@ -1793,13 +1819,30 @@
     it.name = v ? v + ".jpg" : it.file.name;
     it.el.querySelector(".nm").textContent = nmText(it); persist(it);
   };
-  $("#camEdit").onclick = () => { if (!cam.it) return; ed.onClose = camReview; openEditor(cam.it); };
+  $("#camEdit").onclick = () => {
+    const it = cam.it; if (!it) return;
+    if (it.pending) { it.pending = false; openOrig(it); camLiveAfterOrig(it); return; }   // önizlemede: orijinali kırp / döndür, kaydedince arkada işlenir
+    ed.onClose = camReview; openEditor(it);
+  };
+  // orijinal düzenleyici kapanınca: kaydedildiyse (kuyrukta) sıradaki öğrenciye geç, vazgeçildiyse önizleme kalır
+  function camLiveAfterOrig(it) {
+    const t = setInterval(() => {
+      if (!$("#org").hidden) return;
+      clearInterval(t);
+      if (it.inQ) { if (cam.replace) closeCam(); else { cam.it = it; stuDedupe(); stuAdvance(); camLive(); } }
+      else it.pending = true;
+    }, 300);
+  }
   // listedeki bir öğrenci yeniden çekildiyse (◀ ile geri gelinip) eski fotoğrafı kaldırılır
   function stuDedupe() {
     const it = cam.it; if (!it || !it.stu) return;
     items.filter(i => i !== it && (i.cls || "") === (it.cls || "") && i.stu === it.stu).forEach(camRemove);
   }
-  $("#camNext").onclick = () => { if (cam.replace) closeCam(); else { stuDedupe(); stuAdvance(); camLive(); } };
+  $("#camNext").onclick = () => {
+    const it = cam.it; camQueue(it);
+    if (cam.replace) closeCam();
+    else { stuDedupe(); stuAdvance(); camLive(); if (camQ.length) camInfo("✓ Kaydedildi: " + (it ? it.name : "") + " · arkada işlenen " + camQ.length + ". Yüzü ovale getir.", "good"); }
+  };
   // sınıf: ana ekran ve kamera aynı değeri kullanır, bu cihazda hatırlanır
   function curCls() { return $("#cls").value.trim().replace(/[\\/:*?"<>|]+/g, "_"); }
   try { $("#cls").value = localStorage.getItem("bgr-sinif") || ""; } catch (e) {}
@@ -1808,7 +1851,7 @@
   $("#camCls").oninput = e => clsSet(e.target.value);
   $("#camClose").onclick = () => {
     if (cam.proc) return;
-    stuDedupe(); closeCam();
+    camQueue(cam.it); stuDedupe(); closeCam();
     const ok = items.filter(i => i.blob).length;
     if (camQ.length) msg("Arkada işleniyor: " + camQ.length + " fotoğraf kaldı. Bitince kontrol edip ZIP olarak indir.");
     else if (ok) msg(ok + " fotoğraf hazır. Düzenlemek ya da yeniden çekmek için fotoğrafa dokun, sonra ZIP olarak indir.");
