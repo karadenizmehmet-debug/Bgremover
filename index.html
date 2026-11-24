@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.12">
+<meta name="version" content="3.12.1">
 <meta name="theme-color" content="#0f172a">
 <script>try{if(localStorage.getItem("bgr-tema")==="light")document.documentElement.setAttribute("data-theme","light")}catch(e){}</script>
 <title>e-Okul Fotoğraf Düzenleme Otomasyonu</title>
@@ -77,7 +77,7 @@
   #camV{display:block;max-width:100%;max-height:62vh;border-radius:8px;background:#000}
   #camV.mir{transform:scaleX(-1)}
   #camC{display:block;max-width:100%;max-height:62vh;border-radius:6px;background:#fff}
-  .camguide{position:absolute;left:50%;top:50%;height:86%;aspect-ratio:133/171;max-width:96%;transform:translate(-50%,-50%);border:2px dashed rgba(56,189,248,.75);border-radius:8px;pointer-events:none}
+  .camguide{position:absolute;left:50%;top:50%;width:0;height:0;transform:translate(-50%,-50%);border:2px dashed rgba(56,189,248,.75);border-radius:8px;pointer-events:none}
   .camguide::after{content:"";position:absolute;left:25%;width:50%;top:12%;height:52%;border:2px solid rgba(74,222,128,.7);border-radius:50%}
   #camInfo{min-height:2.6em;font-size:.85rem;color:var(--txt)}
   #camInfo.warn{color:#fbbf24}#camInfo.good{color:var(--ok)}
@@ -89,7 +89,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.12</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.12.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -1028,7 +1028,7 @@
   function camInfo(t, cls) { const ci = $("#camInfo"); ci.className = "edhint" + (cls ? " " + cls : ""); ci.textContent = t; }
   async function camStart(id) {
     camStop();
-    const v = { width: { ideal: 1920 } };
+    const v = { width: { ideal: 1920 }, height: { ideal: 1440 } };   // 4:3 iste (telefon dik tutulunca 3:4 olur), ekran boyu kadar uzun görüntü gelmesin
     if (id) v.deviceId = { exact: id }; else v.facingMode = { ideal: "environment" };
     cam.stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
     cam.track = cam.stream.getVideoTracks()[0];
@@ -1042,9 +1042,21 @@
     devs.forEach((d, i) => { const o = document.createElement("option"); o.value = d.deviceId; o.textContent = d.label || ("Kamera " + (i + 1)); sel.appendChild(o); });
     if (st.deviceId) sel.value = st.deviceId;
   }
+  // Kılavuz çerçeve her zaman e-Okul oranında (133:171): görüntü ne kadar uzun/geniş olursa olsun içine sığdırılır
+  function camGuide() {
+    const r = camV.getBoundingClientRect(), g = document.querySelector(".camguide");
+    if (!r.width || !r.height) return;
+    let h = r.height * 0.9, w = h * 133 / 171;
+    if (w > r.width * 0.92) { w = r.width * 0.92; h = w * 171 / 133; }
+    g.style.width = Math.round(w) + "px"; g.style.height = Math.round(h) + "px";
+  }
+  camV.addEventListener("loadedmetadata", camGuide);
+  camV.addEventListener("resize", camGuide);
+  window.addEventListener("resize", camGuide);
   function camLive() {
     cam.it = null; $("#camLive").hidden = false; $("#camRev").hidden = true; $("#camLiveBtns").hidden = false; $("#camRevBtns").hidden = true;
     $("#camShot").disabled = items.length >= 40; $("#camSel").disabled = false; camCount();
+    requestAnimationFrame(camGuide);
     camInfo(items.length >= 40 ? "40 fotoğraf sınırına ulaşıldı. Bitir'e bas." : "Öğrenciyi kesik çizgili çerçeveye, yüzünü yeşil ovale getir ve çek.");
   }
   function camReview() {
