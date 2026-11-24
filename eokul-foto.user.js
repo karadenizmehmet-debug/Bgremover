@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.0
+// @version      0.3.1
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -71,10 +71,12 @@
     return sonra ? sonra[0] : null;
   };
   const harfli = t => /[A-Za-zÇĞİÖŞÜçğıöşü]{2,}/.test(t || '');
+  // dönem / öğretim yılı seçenekleri ("2026-2027 I. Dönem") öğrenci değildir; yoksa yıl okul no sanılır
+  const donemMi = t => /\b(19|20)\d\d\s*[-–\/]\s*(19|20)?\d\d\b|dönem|donem|yılı|yili|ders\s*yılı/i.test(t || '');
   function ogrenciSecimi() {
     let en = null;
     for (const d of belgeler()) for (const s of d.querySelectorAll('select')) {
-      const ops = [...s.options].filter(o => secenekNo(o.text) && harfli(o.text));
+      const ops = [...s.options].filter(o => secenekNo(o.text) && harfli(o.text) && !donemMi(o.text));
       if (ops.length >= 3 && (!en || ops.length > en.ops.length)) en = { s, ops };
     }
     return en;
@@ -82,7 +84,17 @@
   // Sayfada açık öğrencinin okul numarası. Bulunamazsa null (yanlış öğrenciye yüklememek için tahmin yapılmaz).
   function acikOgrenciNo() {
     const sec = ogrenciSecimi();
-    if (sec && sec.s.selectedIndex >= 0) { const o = sec.s.options[sec.s.selectedIndex]; const n = secenekNo(o.text); if (n && harfli(o.text)) return { no: n, kaynak: 'öğrenci seçimi: ' + o.text.trim() }; }
+    if (sec && sec.s.selectedIndex >= 0) { const o = sec.s.options[sec.s.selectedIndex]; const n = secenekNo(o.text); if (n && harfli(o.text) && !donemMi(o.text)) return { no: n, kaynak: 'öğrenci seçimi: ' + o.text.trim() }; }
+    // e-Okul öğrenci kartı başlığı: "8-HALİL İBRAHİM ŞENOL" (okul no - AD SOYAD); sayfada tek farklı numara varsa alınır
+    {
+      const bul = new Map();
+      for (const d of belgeler()) for (const el of d.querySelectorAll('h1,h2,h3,h4,h5,h6,span,div,td,b,strong,label,p')) {
+        if (el.children.length || el.closest('#vf-panel') || !gorunur(el)) continue;
+        const m = /^\s*(\d{1,6})\s*[-–]\s*([A-ZÇĞİÖŞÜ]{2,}(?:\s+[A-ZÇĞİÖŞÜ]{2,})+)\s*$/.exec(el.textContent || '');
+        if (m && !donemMi(el.textContent)) bul.set(m[1], m[0].trim().replace(/\s+/g, ' '));
+      }
+      if (bul.size === 1) { const [no, t] = [...bul][0]; return { no, kaynak: 'başlık: ' + t }; }
+    }
     // e-Okul "Öğrenci Resim İşlemleri": Öğrenci Bilgileri bölümünde "Okul No" etiketi, yanındaki kutuda numara
     for (const d of belgeler()) for (const el of d.querySelectorAll('td,th,span,label,div')) {
       if (el.children.length > 2 || el.closest('#vf-panel') || !/^\s*(okul|öğrenci)\s*no\s*:?\s*$/i.test(el.textContent)) continue;
