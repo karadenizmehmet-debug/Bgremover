@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.18">
+<meta name="version" content="3.19">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -146,7 +146,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.18</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.19</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -227,6 +227,8 @@
 <section>
   <button class="btn" id="zip" disabled>⬇ Hepsini ZIP olarak indir</button>
   <div style="height:8px"></div>
+  <label class="chk" style="display:flex;gap:8px;align-items:center;margin:8px 0 0;font-size:.85rem"><input type="checkbox" id="zipOrig"> Orijinal (işlenmemiş) fotoğrafları da ZIP'e ekle (orijinal klasörü)</label>
+  <div style="height:8px"></div>
   <button class="btn sec" id="share" disabled>📤 Paylaş / Galeriye kaydet</button>
   <div style="height:8px"></div>
   <button class="btn sec" id="clear" type="button">🗑 Listeyi temizle (yeni sınıf)</button>
@@ -252,7 +254,7 @@
       <button class="btn sec" id="edcancel">İptal</button>
       <button class="btn sec" id="ednext">›</button>
     </div>
-    <div class="row"><button class="btn sec" id="edcam" style="flex:0 1 auto">📷 Yeniden çek</button><button class="btn" id="edsave">Kaydet</button></div>
+    <div class="row"><button class="btn sec" id="edorig" style="flex:0 1 auto" type="button">🖼 Orijinal</button><button class="btn sec" id="edcam" style="flex:0 1 auto">📷 Yeniden çek</button><button class="btn" id="edsave">Kaydet</button></div>
   </div>
 </div>
 
@@ -260,8 +262,9 @@
   <div class="lstbox">
     <h3>📋 Sınıf listesi <small id="lstCls" style="color:#94a3b8;font-weight:400"></small></h3>
     <div class="sub" style="margin:0">Listenin fotoğrafını çek (e-Okul çıktısı), Excel/CSV seç ya da metni yapıştır. Okunanları aşağıda kontrol edip düzelt.</div>
-    <div class="row"><label class="btn" for="lstImg">📷 Listenin fotoğrafı</label><label class="btn sec" for="lstFile">📄 Excel / CSV</label></div>
-    <input id="lstImg" type="file" accept="image/*" hidden><input id="lstFile" type="file" accept=".xlsx,.xls,.csv,.txt" hidden>
+    <div class="row"><label class="btn" for="lstCap">📷 Listenin fotoğrafını şimdi çek</label></div>
+    <div class="row"><label class="btn sec" for="lstImg">🖼 Galeriden</label><label class="btn sec" for="lstFile">📄 Excel / CSV</label></div>
+    <input id="lstCap" type="file" accept="image/*" capture="environment" hidden><input id="lstImg" type="file" accept="image/*" hidden><input id="lstFile" type="file" accept=".xlsx,.xls,.csv,.txt" hidden>
     <textarea id="lstText" placeholder="Ya da buraya yapıştır: her satırda okul no ve ad soyad (ör. 1234 AHMET YILMAZ)"></textarea>
     <div class="row"><button class="btn sec" id="lstParse" type="button">Yapıştırılanı ekle</button><button class="btn sec" id="lstAdd" type="button">+ Öğrenci ekle</button></div>
     <div id="lstMsg"></div>
@@ -271,7 +274,7 @@
       <option value="nus">Dosya adı: 1234_AHMET_YILMAZ.jpg</option>
       <option value="no">Dosya adı: 1234.jpg (sadece okul no)</option>
     </select></div>
-    <div class="row"><button class="btn sec" id="lstDel" type="button">Listeyi sil</button><button class="btn" id="lstSave" type="button">Kaydet</button></div>
+    <div class="row"><button class="btn sec" id="lstX" type="button">Vazgeç</button><button class="btn sec" id="lstDel" type="button">Listeyi sil</button><button class="btn" id="lstSave" type="button">Kaydet</button></div>
   </div>
 </div>
 
@@ -283,7 +286,7 @@
     <div class="camview" id="camRev" hidden><canvas id="camC" width="399" height="513"></canvas></div>
     <div class="edhint" id="camInfo"></div>
     <div id="camLiveBtns"><div id="camSetBox" hidden></div><div id="camZoomBox" hidden>Yakınlaştır <input type="range" id="camZoom" style="flex:1"><b id="camZv"></b></div><button class="shutter" id="camShot" type="button" aria-label="Çek"></button>
-      <div class="camopts"><button type="button" id="optAuto">⏱ Otomatik çek</button><button type="button" id="optBurst">🎞 Seri (3 kare)</button><input id="camCls" type="text" placeholder="Sınıf" autocomplete="off" aria-label="Sınıf"></div></div>
+      <div class="camopts"><button type="button" id="optAuto">⏱ Otomatik çek</button><button type="button" id="optBurst">🎞 Seri (3 kare)</button><button type="button" id="optFast">⚡ Hızlı (sonra incele)</button><input id="camCls" type="text" placeholder="Sınıf" autocomplete="off" aria-label="Sınıf"></div></div>
     <div id="camRevBtns" hidden>
       <input id="camName" type="text" placeholder="Ad / okul no (isteğe bağlı, dosya adı olur)" autocomplete="off">
       <div class="row"><button class="btn sec" id="camRetake" type="button">↺ Tekrar çek</button><button class="btn sec" id="camEdit" type="button">✎ Düzenle</button></div>
@@ -1090,6 +1093,7 @@
     try { await ensureModels(); } catch (e) { msg("Model yüklenemedi: " + e.message + " (internet bağlantısını kontrol et veya \"Eski motor\" seç)"); busy = false; $("#start").disabled = false; return; }
     let done = 0;
     for (const it of items) {
+      if (it.inQ) { done++; continue; }   // hızlı çekim kuyruğu zaten işliyor
       if (!it.cut) {
         setSt(it, "işleniyor..."); msg((done + 1) + " / " + items.length + " işleniyor (" + ($("#model").value === "rmbg" ? rmDev : (cpuOnly ? "CPU" : "GPU")) + ")...");
         try { await processItem(it); } catch (e) { console.error(e); setSt(it, "hata", "er"); done++; prog(done / items.length); continue; }
@@ -1395,11 +1399,22 @@
 
   // ---------- otomatik çekim ve seri çekim seçenekleri (bu cihazda hatırlanır) ----------
   const CO_KEY = "bgr-cekim";
-  const camOpt = (() => { try { return Object.assign({ auto: true, burst: true }, JSON.parse(localStorage.getItem(CO_KEY) || "{}")); } catch (e) { return { auto: true, burst: true }; } })();
-  function optUi() { $("#optAuto").classList.toggle("on", camOpt.auto); $("#optBurst").classList.toggle("on", camOpt.burst); }
+  const camOpt = (() => { try { return Object.assign({ auto: true, burst: true, fast: false }, JSON.parse(localStorage.getItem(CO_KEY) || "{}")); } catch (e) { return { auto: true, burst: true, fast: false }; } })();
+  function optUi() { $("#optAuto").classList.toggle("on", camOpt.auto); $("#optBurst").classList.toggle("on", camOpt.burst); $("#optFast").classList.toggle("on", camOpt.fast); }
   const optSave = () => { try { localStorage.setItem(CO_KEY, JSON.stringify(camOpt)); } catch (e) {} optUi(); };
   $("#optAuto").onclick = () => { camOpt.auto = !camOpt.auto; okRun = 0; optSave(); };
   $("#optBurst").onclick = () => { camOpt.burst = !camOpt.burst; optSave(); };
+  $("#optFast").onclick = () => { camOpt.fast = !camOpt.fast; optSave(); camLive(); };
+  try { $("#zipOrig").checked = localStorage.getItem("bgr-zip-orijinal") !== "0"; } catch (e) { $("#zipOrig").checked = true; }
+  $("#zipOrig").onchange = e => { try { localStorage.setItem("bgr-zip-orijinal", e.target.checked ? "1" : "0"); } catch (er) {} };
+  $("#edorig").onclick = () => {
+    const it = ed.it; if (!it || !it.file) return;
+    const u = URL.createObjectURL(it.file), o = document.createElement("div");
+    o.style.cssText = "position:fixed;inset:0;z-index:60;background:#000;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;padding:10px";
+    o.innerHTML = '<img style="max-width:100%;max-height:88vh;object-fit:contain"><div style="color:#cbd5e1;font-size:.85rem">Orijinal (işlenmemiş) · kapatmak için dokun</div>';
+    o.firstChild.src = u; o.onclick = () => { URL.revokeObjectURL(u); o.remove(); };
+    document.body.appendChild(o);
+  };
   optUi();
   // Otomatik çekim: yüz ~1 sn (4 ölçüm) uygun kalınca çeker. Aynı öğrenciyi iki kez çekmemek için
   // bir çekimden sonra yüz kadrajdan çıkana (en az 0,5 sn yüz yok) kadar beklenir.
@@ -1465,6 +1480,7 @@
     stuBar();
     requestAnimationFrame(camGuide); liveOk = false; okRun = 0; document.querySelector(".camguide").classList.remove("ok", "bad");
     if (cam.replace) camInfo("“" + cam.replace.name + "” yeniden çekiliyor. Yüzü yeşil ovale getir.");
+    else if (camOpt.fast && camQ.length) camInfo("⚡ Hızlı çekim · işlenmeyi bekleyen " + camQ.length + ". Yüzü ovale getir.");
     else camInfo(items.length >= 40 ? "40 fotoğraf sınırına ulaşıldı. Bitir'e bas." : (camOpt.auto ? "Yüzü yeşil ovale getir. Uygun olunca kendiliğinden çekilir." : "Yüzü yeşil ovale getir. Uygun olunca çerçeve yeşil olur.") + " Telefonu yan tutarak da çekebilirsin.");
   }
   function camReview() {
@@ -1538,6 +1554,14 @@
     const it = { id: newId(), file: new File([blob], name, { type: "image/jpeg" }), name, cls: rep ? rep.cls : curCls(), stu: rep ? rep.stu : stu ? stu.no : "", cut: null, info: null, blob: null, url: null, man: null, cam: true };
     makeCell(it); setSt(it, "işleniyor...");
     if (rep) camSwap(rep, it); else { items.push(it); persist(it); persistOrder(); }
+    if (camOpt.fast && !rep) {
+      // hızlı çekim: incelemeden kuyruğa al, hemen sıradaki öğrenciye geç; işleme arkada sürer
+      it.inQ = true; setSt(it, "sırada"); camQ.push(it); qPump();
+      cam.it = it; stuDedupe(); cam.it = null;
+      cam.proc = false; busy = false; stuAdvance(); camAfter(); camLive();
+      camInfo("✓ Kaydedildi: " + it.name + (camQ.length ? " · işlenmeyi bekleyen " + camQ.length : ""), "good");
+      return;
+    }
     try {
       await ensureModels();
       await processItem(it);
@@ -1550,6 +1574,23 @@
     }
     cam.proc = false; busy = false; camAfter(); camReview();
   };
+  // ---------- hızlı çekim kuyruğu: çekilenler sırayla arkada işlenir ----------
+  const camQ = []; let qRun = false;
+  async function qPump() {
+    if (qRun) return; qRun = true;
+    while (camQ.length) {
+      const it = camQ[0];
+      if (items.includes(it)) {
+        setSt(it, "işleniyor...");
+        try { await ensureModels(); await processItem(it); await renderItem(it); }
+        catch (e) { console.error(e); setSt(it, "hata — Başlat'a bas", "er"); }
+      }
+      it.inQ = false; camQ.shift(); camAfter();
+      if (!cam.on) { const bad = items.filter(i => i.cam && !i.cut && !i.inQ).length;
+        msg(camQ.length ? "Arkada işleniyor: " + camQ.length + " fotoğraf kaldı..." : bad ? bad + " çekim işlenemedi (internet / model). Başlat'a basarak tekrar dene." : "Tüm çekimler işlendi. Kontrol için fotoğraflara dokun."); }
+    }
+    qRun = false; updateGains();
+  }
   // Seri çekim: ~150 ms arayla 3 kare; yüz bulunan, gözleri açık ve en net olanı seçilir
   async function burstBest(rot) {
     const first = grab(rot);
@@ -1602,7 +1643,8 @@
     if (cam.proc) return;
     stuDedupe(); closeCam();
     const ok = items.filter(i => i.blob).length;
-    if (ok) msg(ok + " fotoğraf hazır. Düzenlemek ya da yeniden çekmek için fotoğrafa dokun, sonra ZIP olarak indir.");
+    if (camQ.length) msg("Arkada işleniyor: " + camQ.length + " fotoğraf kaldı. Bitince kontrol edip ZIP olarak indir.");
+    else if (ok) msg(ok + " fotoğraf hazır. Düzenlemek ya da yeniden çekmek için fotoğrafa dokun, sonra ZIP olarak indir.");
   };
   // listeden dokunulan fotoğrafı düzenleyicide "Yeniden çek" ile kamerada tekrar çek: aynı ad ve sırada değişir
   $("#edcam").onclick = () => { const it = ed.it; if (!it) return; closeEditor(); openCam(it); };
@@ -1650,6 +1692,8 @@
     const bad = items.filter(i => i.blob && warnsOf(i).length);
     if (bad.length) files.push({ name: "yeniden_cekilecekler.txt", data: new TextEncoder().encode("Yeniden çekilmesi önerilenler (otomatik tahmin):\r\n" + bad.map(i => (i.cls ? i.cls + " / " : "") + i.name + " - " + warnsOf(i).join(", ")).join("\r\n") + "\r\n") });
     const clsList = [...new Set(items.filter(i => i.blob).map(i => i.cls || ""))];
+    // işlenmemiş orijinaller: sınıf/orijinal/ad.jpg (kamera çekimleri tam çözünürlük, kırpılmamış)
+    if ($("#zipOrig").checked) for (const it of items) if (it.file) files.push({ name: uniqueName((it.cls ? it.cls + "/" : "") + "orijinal/" + it.name, used), data: new Uint8Array(await it.file.arrayBuffer()) });
     // listesi olan sınıflarda fotoğrafı olmayan öğrenciler
     const miss = [];
     for (const c of clsList) { const L = lstGet(c); L.forEach(st => { if (!items.some(i => i.blob && (i.cls || "") === c && i.stu === st.no)) miss.push((c ? c + " / " : "") + st.no + " " + st.name); }); }
@@ -1778,6 +1822,7 @@
     try { localStorage.setItem("bgr-adbicim", $("#lstFmt").value); } catch (e) {}
     lstClose(); lstBtnTxt(); msg(L.length ? L.length + " öğrencilik liste kaydedildi. Uygulama içinden çekimde sıradaki öğrencinin adıyla kaydedilir." : "Liste boş kaydedildi.");
   };
+  $("#lstX").onclick = lstClose;
   $("#lstDel").onclick = () => { if (!lstW.length || confirm("Bu sınıfın listesi silinsin mi? (Fotoğraflar silinmez)")) { lstW = []; lstDraw(); } };
   $("#lstAdd").onclick = () => { lstW.push({ no: "", name: "" }); lstDraw(); const ins = $("#lstRows").querySelectorAll(".ln"); if (ins.length) ins[ins.length - 1].focus(); };
   $("#lstParse").onclick = () => { lstMerge(parseText($("#lstText").value), "Yapıştırılan"); $("#lstText").value = ""; };
@@ -1793,6 +1838,7 @@
     } catch (er) { $("#lstMsg").textContent = "Dosya okunamadı: " + (er.message || er); }
   };
   // listenin fotoğrafı: Tesseract (Türkçe) ile telefonda okunur, internete gönderilmez
+  $("#lstCap").onchange = e => $("#lstImg").onchange(e);
   $("#lstImg").onchange = async e => {
     const f = e.target.files[0]; e.target.value = ""; if (!f) return;
     $("#lstMsg").textContent = "Okuma modeli hazırlanıyor (ilk seferde ~5 MB indirilir)...";
