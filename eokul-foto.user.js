@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.2.0
+// @version      0.3.0
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -142,7 +142,30 @@
   // e-Okul'daki Kaydet / Yükle düğmeleri (öğretmen basar; vurgulanır)
   // simge düğmeler (araç çubuğundaki disket) için title / alt / id de okunur; sil / iptal asla seçilmez
   const dugmeYazi = b => [b.value, b.textContent, b.title, b.alt, b.id, b.getAttribute && b.getAttribute('aria-label'), b.querySelector && b.querySelector('img') && (b.querySelector('img').title || b.querySelector('img').alt)].filter(Boolean).join(' ').trim();
+  // Simge görselin adresi / arka planı (araç çubuğundaki disket: save.png, kaydet.gif gibi)
+  const simgeAdres = b => { const im = b.matches && b.matches('img,input[type=image]') ? b : b.querySelector && b.querySelector('img'); let u = im ? (im.getAttribute('src') || '') : ''; try { u += ' ' + getComputedStyle(b).backgroundImage; } catch (e) {} return u; };
+  // Öğretmenin bir kez dokunarak tanıttığı Kaydet düğmesi (sayfa yenilense de aynı yol ile bulunur)
+  function secici(el) {
+    if (el.id) return '#' + CSS.escape(el.id);
+    const yol = [];
+    for (let e = el; e && e.nodeType === 1 && e !== e.ownerDocument.body; e = e.parentElement) {
+      if (e.id) { yol.unshift('#' + CSS.escape(e.id)); break; }
+      let i = 1; for (let k = e.previousElementSibling; k; k = k.previousElementSibling) if (k.tagName === e.tagName) i++;
+      yol.unshift(e.tagName.toLowerCase() + ':nth-of-type(' + i + ')');
+    }
+    return yol.join('>');
+  }
+  function tanitilanKaydet() {
+    const sc = GM_getValue('kaydetSecici', '');
+    if (!sc) return null;
+    for (const d of belgeler()) { try { const el = d.querySelector(sc); if (el && gorunur(el)) return el; } catch (e) { /* geçersiz */ } }
+    return null;
+  }
   function kaydetDugmeleri() {
+    const t = tanitilanKaydet(); if (t) return [t];
+    const adres = belgeler().flatMap(d => [...d.querySelectorAll('a,input[type=image],img[onclick],button')])
+      .filter(b => gorunur(b) && !b.closest('#vf-panel') && /save|kaydet|disk/i.test(simgeAdres(b)) && !/sil|delete|iptal|cancel/i.test(simgeAdres(b) + ' ' + dugmeYazi(b)));
+    if (adres.length) return adres.map(b => (b.matches('img') && b.closest('a')) || b);
     return belgeler().flatMap(d => [...d.querySelectorAll('input[type=submit],input[type=button],input[type=image],button,a')])
       .filter(b => gorunur(b) && !b.closest('#vf-panel') && /kaydet|yükle|yukle|güncelle|guncelle|save/i.test(dugmeYazi(b)) && !/sil|delete|iptal|vazgeç|vazgec/i.test(dugmeYazi(b)));
   }
@@ -218,6 +241,7 @@
         <div class="vf-s" id="vf-durum" style="color:#0c4a6e;font-weight:600"></div>
         <button class="vf-b" id="vf-sonraki">Sonraki öğrenciye geç ▶</button>
         <label class="vf-s" style="display:flex;gap:6px;align-items:flex-start;color:#1d2430"><input type="checkbox" id="vf-oto" style="margin-top:2px"> <span><b>Tam otomatik:</b> numarası doğrulanan öğrencide Kaydet’e de bas ve sıradakine geç. Durdurmak için işareti kaldır.</span></label>
+        <button class="vf-b" id="vf-tanit">📌 Kaydet düğmesini tanıt</button>
         <div class="vf-s">Numara bulunamazsa fotoğrafı elle seç:</div>
         <select id="vf-elle"></select>
         <div class="vf-s" id="vf-tani"></div>
@@ -288,7 +312,7 @@
     // Kaydet / Yükle'ye basılınca o öğrenci yüklendi sayılır
     belgeler().forEach(d => d.addEventListener('click', e => {
       const b = e.target.closest && e.target.closest('input,button,a');
-      if (b && hedef && /kaydet|yükle|yukle|güncelle|guncelle/i.test((b.value || b.textContent || '').trim())) {
+      if (b && hedef && (kaydetDugmeleri().some(k => k === b || k.contains(b)) || /kaydet|yükle|yukle|güncelle|guncelle/i.test(dugmeYazi(b)))) {
         yuklendi(hedef.no); GM_setValue('sonYukleme', JSON.stringify({ no: hedef.no, zaman: Date.now() }));
       }
     }, true));
@@ -319,6 +343,22 @@
       durum('Fotoğrafı olup yüklenmemiş öğrenci kalmadı. ✓'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return false;
     }
     $('#vf-sonraki').addEventListener('click', sonraki);
+    // Kaydet tanıtma: sonraki dokunuş kaydetmez, yalnızca düğmeyi öğrenir
+    $('#vf-tanit').addEventListener('click', () => {
+      durum('Şimdi e-Okul’daki Kaydet (disket) simgesine bir kez dokunun. Bu dokunuş kaydetmez, sadece düğmeyi öğrenir.');
+      p.classList.remove('acik');
+      const yakala = e => {
+        const el = e.target.closest('a,input,button,img,span,div');
+        if (!el || el.closest('#vf-panel')) return;
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+        belgeler().forEach(d => d.removeEventListener('click', yakala, true));
+        const hedefEl = (el.matches('img') && el.closest('a')) || el;
+        GM_setValue('kaydetSecici', secici(hedefEl));
+        hedefEl.style.outline = '4px solid #f59e0b';
+        ac(); durum('Kaydet düğmesi öğrenildi ✓ (' + (dugmeYazi(hedefEl) || hedefEl.tagName.toLowerCase()) + ')');
+      };
+      belgeler().forEach(d => d.addEventListener('click', yakala, true));
+    });
     $('#vf-oto').checked = !!GM_getValue('tamOto', false);
     $('#vf-oto').addEventListener('change', e => { GM_setValue('tamOto', e.target.checked); GM_setValue('otoSon', ''); if (e.target.checked) otomatik(true); });
 
