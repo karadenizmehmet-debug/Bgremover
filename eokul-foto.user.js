@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.13
+// @version      0.3.14
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -293,6 +293,8 @@
         <div class="vf-s">Numara bulunamazsa fotoğrafı elle seç:</div>
         <select id="vf-elle"></select>
         <div class="vf-s" id="vf-tani"></div>
+        <button class="vf-b" id="vf-kod">📋 Sayfa bilgisini kopyala (destek için)</button>
+        <textarea id="vf-kodt" readonly style="display:none;width:100%;height:90px;font-size:11px"></textarea>
       </div>
       <button class="vf-ac" id="vf-ac">📷 Fotoğraf</button>`;
     document.documentElement.appendChild(p);
@@ -468,6 +470,37 @@
     }
     $('#vf-sonraki').addEventListener('click', sonraki);
     // Kaydet tanıtma: sonraki dokunuş kaydetmez, yalnızca düğmeyi öğrenir
+    // Destek: fotoğraf kutusu, Resim, Kaydet ve satır düğmelerinin HTML'i ile onları kullanan betik parçaları.
+    // Kişisel bilgi (T.C., ad) gizlenir; kopyalanan metin sohbete yapıştırılır.
+    $('#vf-kod').addEventListener('click', async () => {
+      const gizle = t => String(t || '').replace(/\b\d{11}\b/g, '###########')
+        .replace(/value="([^"]*)"/g, (m, v) => /^\d{0,6}$/.test(v) || v.length > 60 ? m : 'value="…"')
+        .replace(/>\s*[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜ ]{1,40}\s*</g, '>…<');
+      const kes = (t, n) => (t = String(t || ''), t.length > n ? t.slice(0, n) + '…' : t);
+      const out = ['URL: ' + location.pathname, 'Betik: ' + GM_info.script.version];
+      const kutu = dosyaKutulari()[0];
+      if (kutu) {
+        const form = kutu.form;
+        out.push('FORM: ' + (form ? kes(form.outerHTML.split('>')[0] + '>', 300) : 'yok'));
+        out.push('DOSYA KUTUSU: ' + kutu.outerHTML);
+        let el = kutu; for (let k = 0; k < 3 && el.parentElement; k++) el = el.parentElement;
+        out.push('KUTU ÇEVRESİ: ' + kes(gizle(el.outerHTML), 3000));
+        const im = onizleme(); out.push('RESİM: ' + (im ? kes(im.outerHTML, 400) : 'yok'));
+        const adlar = [kutu.id, kutu.name].filter(Boolean);
+        for (const d of belgeler()) for (const sc of d.querySelectorAll('script:not([src])')) {
+          const t = sc.textContent || '';
+          for (const ad of adlar) { let i = t.indexOf(ad); let say = 0; while (i >= 0 && say++ < 3) { out.push('BETİK (' + ad + '): ' + t.slice(Math.max(0, i - 300), i + 500)); i = t.indexOf(ad, i + 500); } }
+        }
+        out.push('DIŞ BETİKLER: ' + belgeler().flatMap(d => [...d.querySelectorAll('script[src]')].map(x => x.getAttribute('src'))).join(' | '));
+      } else out.push('DOSYA KUTUSU: yok');
+      const k = kaydetDugmeleri()[0]; out.push('KAYDET: ' + (k ? kes(k.outerHTML, 600) : 'yok'));
+      const bar = k && k.parentElement && k.parentElement.parentElement; if (bar) out.push('ARAÇ ÇUBUĞU: ' + kes(bar.outerHTML, 2500));
+      const L = listeSatirlari(); if (L[0]) out.push('İLK SATIR: ' + kes(gizle(L[0].tr.outerHTML), 1500));
+      const metin = out.join('\n\n');
+      const ta = $('#vf-kodt'); ta.style.display = 'block'; ta.value = metin;
+      try { await navigator.clipboard.writeText(metin); durum('Sayfa bilgisi kopyalandı (' + metin.length + ' karakter). Sohbete yapıştırın.'); }
+      catch (e) { ta.select(); try { document.execCommand('copy'); durum('Sayfa bilgisi kopyalandı. Sohbete yapıştırın.'); } catch (e2) { durum('Kutudaki metni seçip kopyalayın.'); } }
+    });
     $('#vf-tanit').addEventListener('click', () => {
       durum('Şimdi e-Okul’daki Kaydet (disket) simgesine bir kez dokunun. Bu dokunuş kaydetmez, sadece düğmeyi öğrenir.');
       p.classList.remove('acik');
