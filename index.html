@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.14">
+<meta name="version" content="3.15">
 <meta name="theme-color" content="#0f172a">
 <script>try{if(localStorage.getItem("bgr-tema")==="light")document.documentElement.setAttribute("data-theme","light")}catch(e){}</script>
 <title>e-Okul Fotoğraf Düzenleme Otomasyonu</title>
@@ -82,6 +82,17 @@
   .camguide::after{content:"";position:absolute;left:25%;width:50%;top:12%;height:52%;border:2px solid rgba(74,222,128,.7);border-radius:50%}
   .camguide.ok{border:3px solid #4ade80}.camguide.ok::after{border-color:#4ade80;border-width:3px}
   .camguide.bad{border-color:rgba(251,191,36,.9)}
+  #camSetBtn{width:auto;padding:10px 12px}
+  #camSetBox{background:#0f172a;border:1px solid #334155;border-radius:12px;padding:8px 12px;margin:6px 0;max-height:34vh;overflow:auto;font-size:.82rem;color:#cbd5e1}
+  #camSetBox[hidden]{display:none}
+  #camSetBox .cs{display:flex;align-items:center;gap:8px;margin:6px 0}
+  #camSetBox .cs[hidden]{display:none}
+  #camSetBox .cs>span{flex:0 0 92px}
+  #camSetBox .cs input[type=range],#camSetBox .cs select{flex:1;min-width:0}
+  #camSetBox .cs b{flex:0 0 44px;text-align:right;font-weight:600}
+  #camSetBox .cs select{padding:6px;background:#1e293b}
+  #camSetBox .btn{padding:8px;font-size:.85rem;margin-top:4px}
+  #camFocus{position:absolute;width:56px;height:56px;margin:-28px 0 0 -28px;border:2px solid #fbbf24;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .3s}
   #camZoomBox{display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--mut);margin:4px 0 0}
   #camZoomBox[hidden]{display:none}
   #camInfo{min-height:2.6em;font-size:.85rem;color:var(--txt)}
@@ -105,7 +116,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.14</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.15</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -206,11 +217,11 @@
 
 <div id="cam" hidden>
   <div class="cambox">
-    <div class="row camtop"><select id="camSel" aria-label="Kamera"></select><span id="camCnt"></span><button class="btn sec" id="camClose" type="button">Bitir</button></div>
-    <div class="camview" id="camLive"><video id="camV" playsinline muted autoplay></video><div class="camguide"></div></div>
+    <div class="row camtop"><select id="camSel" aria-label="Kamera"></select><span id="camCnt"></span><button class="btn sec" id="camSetBtn" type="button" aria-label="Kamera ayarları" title="Kamera ayarları">⚙</button><button class="btn sec" id="camClose" type="button">Bitir</button></div>
+    <div class="camview" id="camLive"><video id="camV" playsinline muted autoplay></video><div class="camguide"></div><div id="camFocus"></div></div>
     <div class="camview" id="camRev" hidden><canvas id="camC" width="399" height="513"></canvas></div>
     <div class="edhint" id="camInfo"></div>
-    <div id="camLiveBtns"><div id="camZoomBox" hidden>Yakınlaştır <input type="range" id="camZoom" style="flex:1"><b id="camZv"></b></div><button class="shutter" id="camShot" type="button" aria-label="Çek"></button></div>
+    <div id="camLiveBtns"><div id="camSetBox" hidden></div><div id="camZoomBox" hidden>Yakınlaştır <input type="range" id="camZoom" style="flex:1"><b id="camZv"></b></div><button class="shutter" id="camShot" type="button" aria-label="Çek"></button></div>
     <div id="camRevBtns" hidden>
       <input id="camName" type="text" placeholder="Ad / okul no (isteğe bağlı, dosya adı olur)" autocomplete="off">
       <div class="row"><button class="btn sec" id="camRetake" type="button">↺ Tekrar çek</button><button class="btn sec" id="camEdit" type="button">✎ Düzenle</button></div>
@@ -1074,7 +1085,82 @@
       zi.min = caps.zoom.min; zi.max = caps.zoom.max; zi.step = caps.zoom.step || 0.1; zi.value = st.zoom || caps.zoom.min;
       $("#camZv").textContent = (+zi.value).toFixed(1) + "×"; zb.hidden = false;
     } else zb.hidden = true;
+    camSettings(caps, st);
   }
+
+  // ---------- kamera ayarları: yalnız kameranın desteklediği ayarlar gösterilir ----------
+  // Fener sürekli ışıktır (kare videodan alındığı için anlık flaş yerine). Pozlama / beyaz dengesi bu cihazda hatırlanır.
+  const CS_KEY = "bgr-kamera-ayar";
+  const csLoad = () => { try { return JSON.parse(localStorage.getItem(CS_KEY) || "{}"); } catch (e) { return {}; } };
+  const csSave = (k, v) => { const o = csLoad(); if (v == null) delete o[k]; else o[k] = v; try { localStorage.setItem(CS_KEY, JSON.stringify(o)); } catch (e) {} };
+  const camApply = c => cam.track ? cam.track.applyConstraints({ advanced: [c] }).catch(e => camInfo("Ayar uygulanamadı: " + (e.message || e.name), "warn")) : Promise.resolve();
+  let camFocusOk = false;
+  function camSettings(caps, st) {
+    const box = $("#camSetBox"); box.innerHTML = "";
+    const sv = csLoad(), rows = [];
+    const slider = (key, label, fmt, save) => {
+      const c = caps[key]; if (!c || !(c.max > c.min)) return;
+      const d = document.createElement("div"); d.className = "cs";
+      d.innerHTML = "<span></span><input type=range><b></b>";
+      d.children[0].textContent = label;
+      const r = d.children[1], o = d.children[2];
+      r.min = c.min; r.max = c.max; r.step = c.step || (c.max - c.min) / 100;
+      let v = st[key] != null ? st[key] : (c.min + c.max) / 2;
+      if (save && sv[key] != null && sv[key] >= c.min && sv[key] <= c.max) { v = sv[key]; camApply({ [key]: v }); }
+      r.value = v; o.textContent = fmt(+v); r.dataset.def = key === "exposureCompensation" ? 0 : (st[key] != null ? st[key] : v);
+      r.oninput = () => { o.textContent = fmt(+r.value); camApply({ [key]: +r.value }); if (save) csSave(key, +r.value); };
+      d.reset = () => { r.value = r.dataset.def; o.textContent = fmt(+r.value); camApply({ [key]: +r.value }); csSave(key, null); };
+      rows.push(d);
+    };
+    if (caps.torch) {
+      const d = document.createElement("div"); d.className = "cs";
+      d.innerHTML = '<span>Fener (ışık)</span><select><option value="0">Kapalı</option><option value="1">Açık</option></select>';
+      const sl = d.querySelector("select"); sl.value = st.torch ? "1" : "0";
+      sl.onchange = () => camApply({ torch: sl.value === "1" });
+      d.reset = () => { sl.value = "0"; camApply({ torch: false }); };
+      rows.push(d);
+    }
+    slider("exposureCompensation", "Pozlama (ışık)", v => (v > 0 ? "+" : "") + v.toFixed(1), true);
+    const wbm = caps.whiteBalanceMode || [];
+    if (wbm.includes("manual") && caps.colorTemperature && caps.colorTemperature.max > caps.colorTemperature.min) {
+      const d = document.createElement("div"); d.className = "cs";
+      d.innerHTML = '<span>Beyaz dengesi</span><select><option value="continuous">Otomatik</option><option value="manual">Elle</option></select>';
+      const sl = d.querySelector("select"); rows.push(d);
+      slider("colorTemperature", "Renk sıcaklığı", v => Math.round(v) + "K", true);
+      const tr = rows[rows.length - 1];
+      const setMode = m => { sl.value = m; tr.hidden = m !== "manual"; camApply(m === "manual" ? { whiteBalanceMode: "manual", colorTemperature: +tr.querySelector("input").value } : { whiteBalanceMode: wbm.includes("continuous") ? "continuous" : wbm[0] }); csSave("wb", m === "manual" ? "manual" : null); };
+      sl.onchange = () => setMode(sl.value);
+      d.reset = () => setMode("continuous");
+      setMode(sv.wb === "manual" ? "manual" : "continuous");
+    }
+    slider("brightness", "Parlaklık", v => String(Math.round(v)), true);
+    slider("contrast", "Kontrast", v => String(Math.round(v)), true);
+    slider("saturation", "Renk doygunluğu", v => String(Math.round(v)), true);
+    slider("sharpness", "Keskinlik", v => String(Math.round(v)), true);
+    camFocusOk = !!(caps.focusMode && caps.focusMode.includes("single-shot")) || "pointsOfInterest" in (cam.track.getSettings ? cam.track.getSettings() : {});
+    rows.forEach(d => box.appendChild(d));
+    const n = document.createElement("div");
+    n.style.cssText = "color:#94a3b8;font-size:.75rem;margin-top:4px";
+    n.textContent = (rows.length ? "" : "Bu kamera tarayıcıya ayar açmıyor. ") + (camFocusOk ? "Odaklamak için görüntüde yüze dokun." : "") + (caps.torch ? " Fener tahtada parlama yapabilir, gerekirse kapat." : "");
+    box.appendChild(n);
+    if (rows.length) {
+      const b = document.createElement("button"); b.type = "button"; b.className = "btn sec"; b.textContent = "Varsayılana döndür";
+      b.onclick = () => rows.forEach(d => d.reset && d.reset()); box.appendChild(b);
+    }
+  }
+  $("#camSetBtn").onclick = () => { $("#camSetBox").hidden = !$("#camSetBox").hidden; requestAnimationFrame(camGuide); };
+  // dokunarak odaklama (ve ışık ölçümü o noktaya)
+  camV.addEventListener("pointerdown", e => {
+    if (!camFocusOk || !cam.track) return;
+    const r = camV.getBoundingClientRect(); let x = (e.clientX - r.left) / r.width; const y = (e.clientY - r.top) / r.height;
+    const f = $("#camFocus"); f.style.left = (e.clientX - r.left) + "px"; f.style.top = (e.clientY - r.top) + "px"; f.style.opacity = 1;
+    setTimeout(() => { f.style.opacity = 0; }, 900);
+    if (camV.classList.contains("mir")) x = 1 - x;
+    const caps = cam.track.getCapabilities ? cam.track.getCapabilities() : {};
+    const c = { pointsOfInterest: [{ x, y }] };
+    if (caps.focusMode && caps.focusMode.includes("single-shot")) c.focusMode = "single-shot";
+    camApply(c).then(() => { if (caps.focusMode && caps.focusMode.includes("continuous")) setTimeout(() => cam.track && camApply({ focusMode: "continuous", pointsOfInterest: [{ x, y }] }), 1500); });
+  });
   $("#camZoom").oninput = e => {
     const v = +e.target.value; $("#camZv").textContent = v.toFixed(1) + "×";
     if (cam.track) cam.track.applyConstraints({ advanced: [{ zoom: v }] }).catch(() => {});
