@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.21.2">
+<meta name="version" content="3.21.3">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -154,7 +154,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21.2</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.21.3</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -697,6 +697,38 @@
   }
 
   // Kenar rengi temizleme: yarı saydam kenar pikselinin rengini, yakındaki tam opak (içerideki) piksellerin ortalamasına yaklaştırır.
+  // Maske delikleri: koyu / desenli kıyafette model bazı noktaları arka plan sanıyor, oralardan arka plan rengi
+  // (beyaz) benek gibi görünüyordu. Dışarıyla (fotoğraf kenarıyla) bağlantısı olmayan küçük şeffaf bölgeler kişiye katılır.
+  // Kenardan gelen arka plan ve saç uçlarındaki yarı saydamlık dokunulmaz; kol ile gövde arası gibi büyük boşluklar da kalır.
+  async function fillHoles(bm) {
+    const w = bm.width, h = bm.height, n = w * h, c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bm, 0, 0);
+    const id = x.getImageData(0, 0, w, h), d = id.data;
+    const low = new Uint8Array(n); for (let i = 0; i < n; i++) low[i] = d[i * 4 + 3] < 200 ? 1 : 0;
+    const seen = new Uint8Array(n), st = new Int32Array(n), maxA = n * 0.004;
+    let filled = 0;
+    for (let s0 = 0; s0 < n; s0++) {
+      if (!low[s0] || seen[s0]) continue;
+      // bölgeyi dolaş: kenara değiyor mu, kaç piksel
+      let top = 0, len = 0, edge = false; st[top++] = s0; seen[s0] = 1;
+      const comp = [];
+      while (top) {
+        const p = st[--top]; if (++len <= maxA) comp.push(p);   // büyük bölgeler (gerçek arka plan) saklanmaz
+        const px = p % w, py = (p - px) / w;
+        if (px === 0 || py === 0 || px === w - 1 || py === h - 1) edge = true;
+        if (px > 0 && low[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; st[top++] = p - 1; }
+        if (px < w - 1 && low[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; st[top++] = p + 1; }
+        if (py > 0 && low[p - w] && !seen[p - w]) { seen[p - w] = 1; st[top++] = p - w; }
+        if (py < h - 1 && low[p + w] && !seen[p + w]) { seen[p + w] = 1; st[top++] = p + w; }
+      }
+      if (!edge && len <= maxA) { for (const p of comp) d[p * 4 + 3] = 255; filled += len; }
+    }
+    if (!filled) return bm;
+    x.putImageData(id, 0, 0);
+    const out = await createImageBitmap(c);
+    if (bm.close) bm.close();
+    return out;
+  }
   async function defringeBitmap(bm) {
     const w = bm.width, h = bm.height, c = document.createElement("canvas"); c.width = w; c.height = h;
     const x = c.getContext("2d", { willReadFrequently: true }); x.drawImage(bm, 0, 0);
@@ -736,7 +768,7 @@
       let loX = -Infinity, hiX = Infinity, loY = -Infinity, hiY = Infinity;
       for (const [ux, uy] of [[-fw / 2, -eyePct * fh], [fw / 2, -eyePct * fh], [-fw / 2, (1 - eyePct) * fh], [fw / 2, (1 - eyePct) * fh]]) {
         const rx = ca * ux - sa * uy, ry = sa * ux + ca * uy;   // kadraj köşesi, göze göre, kaynak pikselinde
-        loX = Math.max(loX, -ex - rx); hiX = Math.min(hiX, w - ex - rx);
+        loX = Math.max(loX, -ex - rx - fw * 0.25); hiX = Math.min(hiX, w - ex - rx + fw * 0.25);   // yüz ortada kalsın: kadraj fotoğrafın yanından çeyrek kadar taşabilir (arka plan düz renk; kesik omuz boşluğu yakınlaştırmayla kapanır)
         if (!freeTop) loY = Math.max(loY, -ey - ry);                // üst boşluk serbestse kadraj fotoğrafın üstünden taşabilir (orası düz arka plan)
         hiY = Math.min(hiY, h - ey - ry);
       }
@@ -1099,7 +1131,7 @@
   async function processItem(it) {
     const src = await prepare(it.file);
     const out = await withTimeout(cutout(src), 90000);
-    it.cut = await createImageBitmap(out);
+    it.cut = await fillHoles(await createImageBitmap(out));
     if ($("#fx_defringe").checked) { try { it.cut = await defringeBitmap(it.cut); } catch (e) { console.warn("kenar temizleme", e); } }
     it.info = analyze(it.cut);
     try { it.face = await withTimeout(findFace(src), 15000); } catch (e) { console.warn("yüz", e); it.face = null; }
