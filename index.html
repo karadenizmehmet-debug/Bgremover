@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.12.1">
+<meta name="version" content="3.13">
 <meta name="theme-color" content="#0f172a">
 <script>try{if(localStorage.getItem("bgr-tema")==="light")document.documentElement.setAttribute("data-theme","light")}catch(e){}</script>
 <title>e-Okul Fotoğraf Düzenleme Otomasyonu</title>
@@ -79,6 +79,10 @@
   #camC{display:block;max-width:100%;max-height:62vh;border-radius:6px;background:#fff}
   .camguide{position:absolute;left:50%;top:50%;width:0;height:0;transform:translate(-50%,-50%);border:2px dashed rgba(56,189,248,.75);border-radius:8px;pointer-events:none}
   .camguide::after{content:"";position:absolute;left:25%;width:50%;top:12%;height:52%;border:2px solid rgba(74,222,128,.7);border-radius:50%}
+  .camguide.ok{border:3px solid #4ade80}.camguide.ok::after{border-color:#4ade80;border-width:3px}
+  .camguide.bad{border-color:rgba(251,191,36,.9)}
+  #camZoomBox{display:flex;align-items:center;gap:8px;font-size:.8rem;color:var(--mut);margin:4px 0 0}
+  #camZoomBox[hidden]{display:none}
   #camInfo{min-height:2.6em;font-size:.85rem;color:var(--txt)}
   #camInfo.warn{color:#fbbf24}#camInfo.good{color:var(--ok)}
   .shutter{display:block;margin:6px auto 0;width:74px;height:74px;border-radius:50%;border:5px solid #fff;background:var(--acc);cursor:pointer}
@@ -86,10 +90,21 @@
   #camName{width:100%;padding:10px;border-radius:10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;font:inherit;margin-top:4px}
   #camRevBtns .row{margin-top:8px;flex-wrap:nowrap}
   #camRevBtns .row .btn{flex:1;padding:12px}
+  /* telefon yan çevrilince: görüntü solda, düğmeler sağda */
+  @media (orientation:landscape) and (max-height:600px){
+    .cambox{max-width:none;display:grid;grid-template-columns:minmax(0,1fr) 230px;grid-template-rows:auto 1fr auto;column-gap:12px;align-items:center}
+    .camtop{grid-column:2;grid-row:1;flex-wrap:wrap}
+    .camtop select{flex-basis:100%}
+    #camLive,#camRev{grid-column:1;grid-row:1/4}
+    #camInfo{grid-column:2;grid-row:2}
+    #camLiveBtns,#camRevBtns{grid-column:2;grid-row:3}
+    #camV,#camC{max-height:calc(100vh - 24px)}
+    .shutter{width:62px;height:62px}
+  }
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.12.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.13</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -194,7 +209,7 @@
     <div class="camview" id="camLive"><video id="camV" playsinline muted autoplay></video><div class="camguide"></div></div>
     <div class="camview" id="camRev" hidden><canvas id="camC" width="399" height="513"></canvas></div>
     <div class="edhint" id="camInfo"></div>
-    <div id="camLiveBtns"><button class="shutter" id="camShot" type="button" aria-label="Çek"></button></div>
+    <div id="camLiveBtns"><div id="camZoomBox" hidden>Yakınlaştır <input type="range" id="camZoom" style="flex:1"><b id="camZv"></b></div><button class="shutter" id="camShot" type="button" aria-label="Çek"></button></div>
     <div id="camRevBtns" hidden>
       <input id="camName" type="text" placeholder="Ad / okul no (isteğe bağlı, dosya adı olur)" autocomplete="off">
       <div class="row"><button class="btn sec" id="camRetake" type="button">↺ Tekrar çek</button><button class="btn sec" id="camEdit" type="button">✎ Düzenle</button></div>
@@ -412,7 +427,9 @@
   const EYE_CHIN = 0.28;   // göz hizası ile çene arası, kare yüksekliğinin oranı (yakınlık %100)
   const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
   let landmarker = null, faceTried = false;
-  async function loadFace() {
+  let faceP = null;
+  function loadFace() { return faceP || (faceP = loadFace0()); }   // eşzamanlı çağrılar aynı yüklemeyi bekler
+  async function loadFace0() {
     if (landmarker || faceTried) return;
     faceTried = true;
     try {
@@ -908,9 +925,18 @@
     }, 250);
   }
 
-  async function ensureModels() {
-    if ($("#model").value === "rmbg") await loadRmbg(); else { await loadLib(); await warm(); }
-    await loadFace();
+  // aynı anda birden çok çağrı olursa (kamera açılışında ön yükleme + ilk çekim) modeller tek kez yüklenir
+  let modelsP = null, modelsKey = "";
+  function ensureModels() {
+    const k = $("#model").value;
+    if (!modelsP || modelsKey !== k) {
+      modelsKey = k;
+      modelsP = (async () => {
+        if (k === "rmbg") await loadRmbg(); else { await loadLib(); await warm(); }
+        await loadFace();
+      })().catch(e => { modelsP = null; throw e; });
+    }
+    return modelsP;
   }
   // tek fotoğraf: arka planı sil, kişiyi ve yüzü ölç
   async function processItem(it) {
@@ -1041,7 +1067,61 @@
     sel.innerHTML = "";
     devs.forEach((d, i) => { const o = document.createElement("option"); o.value = d.deviceId; o.textContent = d.label || ("Kamera " + (i + 1)); sel.appendChild(o); });
     if (st.deviceId) sel.value = st.deviceId;
+    // yakınlaştırma (destekleyen kamerada): fazlalığı sonra kırpmak için geniş çekmek de mümkün
+    const caps = cam.track.getCapabilities ? cam.track.getCapabilities() : {}, zb = $("#camZoomBox"), zi = $("#camZoom");
+    if (caps.zoom && caps.zoom.max > caps.zoom.min) {
+      zi.min = caps.zoom.min; zi.max = caps.zoom.max; zi.step = caps.zoom.step || 0.1; zi.value = st.zoom || caps.zoom.min;
+      $("#camZv").textContent = (+zi.value).toFixed(1) + "×"; zb.hidden = false;
+    } else zb.hidden = true;
   }
+  $("#camZoom").oninput = e => {
+    const v = +e.target.value; $("#camZv").textContent = v.toFixed(1) + "×";
+    if (cam.track) cam.track.applyConstraints({ advanced: [{ zoom: v }] }).catch(() => {});
+  };
+
+  // ---------- canlı yüz kontrolü: yüz ovale oturunca çerçeve yeşil olur, "Uygun, çek" yazar ----------
+  const liveCv = document.createElement("canvas");
+  let liveOk = false, liveT = 0;
+  function liveCheck() {
+    if (!cam.on || cam.proc || cam.it || !landmarker || !cam.track || document.hidden) return;
+    const vw = camV.videoWidth, vh = camV.videoHeight; if (!vw || !vh) return;
+    const sc = Math.min(1, 360 / Math.max(vw, vh)); liveCv.width = Math.round(vw * sc); liveCv.height = Math.round(vh * sc);
+    liveCv.getContext("2d").drawImage(camV, 0, 0, liveCv.width, liveCv.height);
+    let r; try { r = landmarker.detect(liveCv); } catch (e) { return; }
+    const g = document.querySelector(".camguide"), vr = camV.getBoundingClientRect(), gr = g.getBoundingClientRect();
+    const L = r.faceLandmarks && r.faceLandmarks[0];
+    const show = (ok, t) => {
+      g.classList.toggle("ok", ok); g.classList.toggle("bad", !ok);
+      camInfo(t, ok ? "good" : "warn");
+      if (ok && !liveOk && navigator.vibrate) try { navigator.vibrate(60); } catch (e) {}
+      liveOk = ok;
+    };
+    if (!L) return show(false, "Yüz aranıyor...");
+    const mir = camV.classList.contains("mir");
+    const P = i => [vr.left + (mir ? 1 - L[i].x : L[i].x) * vr.width, vr.top + L[i].y * vr.height];   // ekrandaki konum
+    const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const eR = mid(P(33), P(133)), eL = mid(P(362), P(263)), e = mid(eR, eL), chin = P(152);
+    const ex = (e[0] - gr.left) / gr.width, ey = (e[1] - gr.top) / gr.height, ec = Math.hypot(chin[0] - e[0], chin[1] - e[1]) / gr.height;
+    const tgtY = $("#top").value / 100, tgtEc = 0.28 * $("#zoom").value / 100;
+    const tilt = Math.abs(Math.atan2(eL[1] - eR[1], eL[0] - eR[0]));
+    const nose = P(1), cl = P(234), cr = P(454), dl = Math.abs(nose[0] - cl[0]), dr = Math.abs(cr[0] - nose[0]), yaw = dl + dr > 1 ? (dl - dr) / (dl + dr) : 0;
+    const cats = (r.faceBlendshapes && r.faceBlendshapes[0] && r.faceBlendshapes[0].categories) || [];
+    const bs = n => { const c = cats.find(b => b.categoryName === n); return c ? c.score : 0; };
+    const h = [];
+    if (ec < tgtEc * 0.75) h.push("biraz yaklaş");
+    else if (ec > tgtEc * 1.35) h.push("biraz uzaklaş");
+    if (ex < 0.42) h.push("telefonu sola çevir");
+    else if (ex > 0.58) h.push("telefonu sağa çevir");
+    if (ey < tgtY - 0.08) h.push("telefonu biraz yukarı kaldır");
+    else if (ey > tgtY + 0.08) h.push("telefonu biraz aşağı indir");
+    if (tilt > 0.12) h.push("başını düz tutsun");
+    if (Math.abs(yaw) > 0.2) h.push("kameraya düz baksın");
+    if ((bs("eyeBlinkLeft") + bs("eyeBlinkRight")) / 2 > 0.5) h.push("gözler kapalı");
+    if (bs("jawOpen") > 0.35) h.push("ağzını kapatsın");
+    if (!h.length) return show(true, "✓ Uygun, çek");
+    const t = h.join(", "); show(false, "⚠ " + t.charAt(0).toUpperCase() + t.slice(1));
+  }
+  setInterval(liveCheck, 250);
   // Kılavuz çerçeve her zaman e-Okul oranında (133:171): görüntü ne kadar uzun/geniş olursa olsun içine sığdırılır
   function camGuide() {
     const r = camV.getBoundingClientRect(), g = document.querySelector(".camguide");
@@ -1056,8 +1136,8 @@
   function camLive() {
     cam.it = null; $("#camLive").hidden = false; $("#camRev").hidden = true; $("#camLiveBtns").hidden = false; $("#camRevBtns").hidden = true;
     $("#camShot").disabled = items.length >= 40; $("#camSel").disabled = false; camCount();
-    requestAnimationFrame(camGuide);
-    camInfo(items.length >= 40 ? "40 fotoğraf sınırına ulaşıldı. Bitir'e bas." : "Öğrenciyi kesik çizgili çerçeveye, yüzünü yeşil ovale getir ve çek.");
+    requestAnimationFrame(camGuide); liveOk = false; document.querySelector(".camguide").classList.remove("ok", "bad");
+    camInfo(items.length >= 40 ? "40 fotoğraf sınırına ulaşıldı. Bitir'e bas." : "Yüzü yeşil ovale getir. Uygun olunca çerçeve yeşil olur. Telefonu yan çevirerek geniş de çekebilirsin.");
   }
   function camReview() {
     const it = cam.it; if (!it) return camLive();
@@ -1089,6 +1169,7 @@
       try { await camStart(""); } catch (e2) { camInfo("Kamera açılamadı: " + (e2.message || e2.name) + " (kamera iznini kontrol et)", "warn"); return; }
     }
     camLive();
+    loadFace().catch(() => {});                                        // canlı yüz kontrolü için önce yüz modeli
     ensureModels().catch(e => console.warn("model ön yükleme", e));    // ilk çekim beklemesin diye modeller şimdiden hazırlanır
   };
   $("#camSel").onchange = async e => { try { await camStart(e.target.value); camLive(); } catch (er) { camInfo("Bu kamera açılamadı: " + (er.message || er.name), "warn"); } };
