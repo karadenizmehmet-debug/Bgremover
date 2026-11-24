@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.22.1">
+<meta name="version" content="3.22.2">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -158,7 +158,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.22.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.22.2</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -1279,14 +1279,22 @@
   function camStop() { if (cam.stream) cam.stream.getTracks().forEach(t => t.stop()); cam.stream = null; cam.track = null; camV.srcObject = null; }
   function camCount() { $("#camCnt").textContent = items.length + " / 40"; }
   function camInfo(t, cls) { const ci = $("#camInfo"); ci.className = "edhint" + (cls ? " " + cls : ""); ci.textContent = t; }
-  async function camStart(id) {
+  // Kamerayı aç. Takılırsa (izin penceresi cevapsız, kamera başka sekmede / uygulamada açık, tarayıcı yüksek çözünürlüğü
+  // kaldıramıyor) 10 sn sonra vazgeçilir; geç gelen akış hemen kapatılır ki kamera meşgul kalmasın.
+  async function gum(constraints) {
+    let late = false;
+    const p = navigator.mediaDevices.getUserMedia(constraints);
+    p.then(st => { if (late) st.getTracks().forEach(t => t.stop()); }, () => {});
+    try { return await withTimeout(p, 8000); } catch (e) { late = true; throw e; }
+  }
+  async function camStart(id, basit) {
     camStop();
-    const v = { width: { ideal: 2560 }, height: { ideal: 1920 } };   // 4:3, kameranın verebildiği en yüksek çözünürlüğe yakın (işleme zaten 2048 px'e indirir)
+    const v = basit ? {} : { width: { ideal: 2560 }, height: { ideal: 1920 } };   // 4:3, kameranın verebildiği en yüksek çözünürlüğe yakın (işleme zaten 2048 px'e indirir)
     if (id) v.deviceId = { exact: id }; else v.facingMode = { ideal: "environment" };
-    cam.stream = await navigator.mediaDevices.getUserMedia({ video: v, audio: false });
+    cam.stream = await gum({ video: v, audio: false });
     cam.track = cam.stream.getVideoTracks()[0];
     camV.srcObject = cam.stream;
-    try { await camV.play(); } catch (e) {}
+    try { await withTimeout(camV.play(), 3000); } catch (e) {}
     const st = cam.track.getSettings ? cam.track.getSettings() : {};
     camV.classList.toggle("mir", st.facingMode === "user");           // ön kamera ayna gibi görünür, kayıt düz alınır
     try { localStorage.setItem("bgr-kamera", st.deviceId || ""); } catch (e) {}
@@ -1689,15 +1697,27 @@
     cam.replace = replace || null; cam.armed = true; cam.si = -1; stuAdvance();
     $("#camCls").value = $("#cls").value;
     cam.on = true; $("#cam").hidden = false; document.body.style.overflow = "hidden";
-    camLive(); camInfo("Kamera açılıyor...");
-    let saved = ""; try { saved = localStorage.getItem("bgr-kamera") || ""; } catch (e) {}
-    try { await camStart(saved); }
-    catch (e) {
-      try { await camStart(""); } catch (e2) { camInfo("Kamera açılamadı: " + (e2.message || e2.name) + " (kamera iznini kontrol et)", "warn"); return; }
-    }
+    camLive(); camInfo("Kamera açılıyor... (izin sorulursa İzin ver'e bas)");
+    if (!(await camOpenTry())) return;
     camLive();
     loadFace().catch(() => {});                                        // canlı yüz kontrolü için önce yüz modeli
     ensureModels().catch(e => console.warn("model ön yükleme", e));    // ilk çekim beklemesin diye modeller şimdiden hazırlanır
+  }
+  // sırayla: kayıtlı kamera, arka kamera, en basit istek (yalnız "bir kamera") — hepsi olmazsa nedeni ve Tekrar dene
+  async function camOpenTry() {
+    let saved = ""; try { saved = localStorage.getItem("bgr-kamera") || ""; } catch (e) {}
+    let err = null;
+    const denemeler = (saved ? [[saved, false]] : []).concat([["", false], ["", true]]);
+    for (const [k, [id, basit]] of denemeler.entries()) {
+      if (k) camInfo("Kamera açılıyor... (" + (k + 1) + ". deneme)");
+      try { await camStart(id, basit); return true; } catch (e) { err = e; console.warn("kamera", id, basit, e); if (e && e.name === "NotAllowedError") break; }
+    }
+    const n = err && err.name, ne = n === "NotAllowedError" ? "kamera izni verilmedi (adres çubuğundaki kilit / kalkan simgesinden izin ver)"
+      : n === "NotReadableError" || (err && /zaman aşımı/.test(err.message)) ? "kamera açılamadı; başka bir sekme ya da uygulama kamerayı kullanıyor olabilir (Chrome'daki sekmeyi / kamera uygulamasını kapat)"
+      : "kamera açılamadı: " + ((err && (err.message || err.name)) || "bilinmeyen hata");
+    camInfo("⚠ " + ne + ". Tekrar denemek için çekim düğmesine bas.", "warn");
+    cam.retry = true; $("#camShot").disabled = false;
+    return false;
   }
   function closeCam() {
     camStop(); cam.on = false; cam.it = null; $("#cam").hidden = true; document.body.style.overflow = "";
@@ -1707,6 +1727,7 @@
   $("#camBtn").onclick = () => openCam(null);
   $("#camSel").onchange = async e => { try { await camStart(e.target.value); camLive(); } catch (er) { camInfo("Bu kamera açılamadı: " + (er.message || er.name), "warn"); } };
   $("#camShot").onclick = async () => {
+    if (cam.retry && !cam.track) { cam.retry = false; camInfo("Kamera açılıyor..."); if (await camOpenTry()) { camLive(); loadFace().catch(() => {}); } return; }
     const rep = cam.replace;
     if (cam.proc || busy || !cam.track || (!rep && items.length >= 40)) return;
     if (!camV.videoWidth || !camV.videoHeight) return;
