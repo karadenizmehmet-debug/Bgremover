@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.15
+// @version      0.3.16
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -540,6 +540,14 @@
         if (!a2 || a2.no !== f.no) { otoDurdur('Numara doğrulanamadı, otomatik durdu.'); return; }
         // e-Okul IOK05001: araç çubuğundaki Kaydet sayfanın kendi işlevini çağırır; o işlev hiddenKaydet="Kaydet"
         // yazıp formu gönderir. Disket resmi (save_d) pasifken tıklamak bir şey yapmıyordu; aynısı doğrudan yapılır.
+        // Önizleme gelince disket etkinleşir (save_d yerine tıklanabilir resim): varsa ona basılır.
+        // Yoksa sayfanın Kaydet işlevinin yaptığı yapılır.
+        const aktif = kaydetDugmeleri()[0];
+        if (aktif && !/_d\.(jpe?g|gif|png)/i.test(simgeAdres(aktif))) {
+          yuklendi(f.no); GM_setValue('otoSon', f.no); GM_setValue('otoZaman', Date.now());
+          durum(f.no + ' kaydediliyor...'); aktif.click();
+          return;
+        }
         const frm = (dosyaKutulari()[0] || {}).form || belgeler().map(d => d.querySelector('form')).find(Boolean);
         const gizli = frm && frm.elements && frm.elements.namedItem('hiddenKaydet');
         if (gizli) {
@@ -576,11 +584,11 @@
         if (!yerlestirFoto(f) || !oto) return;
         // Önizleme beklenir: e-Okul fotoğrafı sunucuya yükleyip sayfayı yeniler (o zaman yukarıdaki dal Kaydet'e basar)
         // ya da aynı sayfada resmi değiştirir. Önceden 1,2 sn sonra Kaydet'e basılıyordu; yükleme yarıda kesilip kayıt olmuyordu.
-        // e-Okul dosya seçilince Goster() çalıştırır. Sayfayı gönderirse (önizleme sunucuda) yenilenen sayfada
-        // yukarıdaki dal kaydeder; göndermezse 2,5 sn sonra buradan kaydedilir (dosya kutuda, formla gider).
-        durum(f.no + ' fotoğrafı kondu, kaydediliyor...');
+        // e-Okul dosya seçilince Goster() ile önizlemeyi sunucuya gönderir, sayfa yenilenir, disket etkinleşir;
+        // yenilenen sayfada yukarıdaki dal Kaydet'e basar. Sayfa 4 sn içinde gönderilmezse buradan kaydedilir.
+        durum(f.no + ' fotoğrafı kondu, önizleme bekleniyor...');
         void eski;
-        setTimeout(() => { if (!ayriliyor) kaydetAdim(f); }, 2500);
+        setTimeout(() => { if (!ayriliyor) kaydetAdim(f); }, 4000);
         return;
       }
       if (oto && (elle || !acik)) { ac(); sonraki(); }
