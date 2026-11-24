@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.23.2">
+<meta name="version" content="3.24">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -38,6 +38,9 @@
   .it .ph{aspect-ratio:133/171;background:#111827;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden}
   .it img{width:100%;height:100%;object-fit:contain}
   .it .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
+  .it .no{width:100%;box-sizing:border-box;margin-top:4px;padding:5px 4px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--txt);font:inherit;font-size:.75rem;text-align:center}
+  .it .no.dup{border-color:#ef4444;background:#450a0a}
+  .it .no.ok{border-color:#22c55e}
   .it.ok .st{color:var(--ok)}.it.er .st{color:var(--err)}.it.ok.warn .st{color:#fbbf24}
   .chk{display:flex;gap:8px;align-items:flex-start;margin:10px 0 0;font-size:.9rem;color:var(--txt)}
   .chk input{margin-top:3px;width:18px;height:18px;flex:none}
@@ -158,7 +161,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.23.2</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.24</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -455,8 +458,30 @@
   const nmText = it => (it.cls ? it.cls + " · " : "") + it.name;
   function makeCell(it) {   // ızgaraya ekler; yeniden çekimde camSwap yerine taşır
     const d = document.createElement("div"); d.className = "it";
-    d.innerHTML = '<div class="ph">⏳</div><div class="nm"></div><div class="st">bekliyor</div>';
-    d.querySelector(".nm").textContent = nmText(it); it.el = d; d.onclick = () => it.blob ? openEditor(it) : (it.file && !it.inQ && !busy ? openOrig(it) : null); $("#grid").appendChild(d);   // işlenemeyen fotoğrafın orijinali de düzeltilebilir
+    d.innerHTML = '<div class="ph">⏳</div><div class="nm"></div><div class="st">bekliyor</div><input class="no" inputmode="numeric" placeholder="Okul no" aria-label="Okul numarası">';
+    d.querySelector(".nm").textContent = nmText(it); it.el = d;
+    // okul numarası: yazılınca dosya adı "no AD SOYAD.jpg" (sınıf listesi varsa) ya da "no.jpg" olur; e-Okul yardımcısı buna göre yükler
+    const ni = d.querySelector(".no"); ni.value = it.stu || "";
+    ni.onclick = e => e.stopPropagation();
+    ni.onchange = () => noAta(it, ni.value);
+    noIsaret(); d.onclick = () => it.blob ? openEditor(it) : (it.file && !it.inQ && !busy ? openOrig(it) : null); $("#grid").appendChild(d);   // işlenemeyen fotoğrafın orijinali de düzeltilebilir
+  }
+  function noAta(it, v) {
+    v = String(v || "").replace(/\D/g, "").slice(0, 6);
+    const L = lstGet(it.cls || ""), st = v && L.find(x => x.no === v);
+    it.stu = v;
+    if (v) it.name = st ? stuFile(st) : v + ".jpg";
+    else if (it.file) it.name = (it.file.name || "foto").replace(/\.[^.]+$/, "") + ".jpg";
+    it.el.querySelector(".nm").textContent = nmText(it);
+    it.el.querySelector(".no").value = v;
+    persist(it); noIsaret();
+    if (v && st) msg(v + " → " + st.name);
+  }
+  // aynı sınıfta aynı numara iki fotoğrafta varsa kırmızı (yanlış öğrenciye yüklenmesin)
+  function noIsaret() {
+    const say = new Map();
+    items.forEach(i => { if (i.stu) { const k = (i.cls || "") + "|" + i.stu; say.set(k, (say.get(k) || 0) + 1); } });
+    items.forEach(i => { const e = i.el && i.el.querySelector(".no"); if (!e) return; const n = i.stu ? say.get((i.cls || "") + "|" + i.stu) : 0; e.classList.toggle("dup", n > 1); e.classList.toggle("ok", n === 1); });
   }
   function msg(t) { $("#msg").textContent = t; if (cam.on && cam.proc) { const ci = $("#camInfo"); ci.className = "edhint"; ci.textContent = t; } }
   function prog(p) { $("#bar").style.display = "block"; $("#bar i").style.width = Math.round(p * 100) + "%"; }
@@ -2004,6 +2029,9 @@
     const bad = items.filter(i => i.blob && warnsOf(i).length);
     if (bad.length) files.push({ name: "yeniden_cekilecekler.txt", data: new TextEncoder().encode("Yeniden çekilmesi önerilenler (otomatik tahmin):\r\n" + bad.map(i => (i.cls ? i.cls + " / " : "") + i.name + " - " + warnsOf(i).join(", ")).join("\r\n") + "\r\n") });
     const clsList = [...new Set(items.filter(i => i.blob).map(i => i.cls || ""))];
+    { const say = new Map(); items.filter(i => i.blob && i.stu).forEach(i => { const k = (i.cls || "") + "|" + i.stu; say.set(k, (say.get(k) || 0) + 1); });
+      const iki = [...say].filter(([, n]) => n > 1).map(([k]) => k.split("|")[1]);
+      if (iki.length) msg("Uyarı: aynı okul numarası birden çok fotoğrafta (" + iki.join(", ") + "). e-Okul'a yüklemeden önce kırmızı kutuları düzelt."); }
     // işlenmemiş orijinaller: sınıf/orijinal/ad.jpg (kamera çekimleri tam çözünürlük, kırpılmamış)
     if ($("#zipOrig").checked) for (const it of items) if (it.file) files.push({ name: uniqueName((it.cls ? it.cls + "/" : "") + "orijinal/" + it.name, used), data: new Uint8Array(await (it.raw || it.file).arrayBuffer()) });
     // listesi olan sınıflarda fotoğrafı olmayan öğrenciler
@@ -2268,6 +2296,9 @@
     const list = items.filter(i => i.blob && eoNo(i));
     if (!list.length) { eoTxt("Okul numarası olan fotoğraf yok. Sınıf listesiyle çekim yap ya da dosya adını numarayla başlat (ör. 1234 AHMET YILMAZ)."); return; }
     if (!eoHelper) { eoTxt(); return; }
+    const dup = new Map(); list.forEach(i => { const k = (i.cls || "") + "|" + eoNo(i); dup.set(k, (dup.get(k) || 0) + 1); });
+    const iki = [...dup].filter(([, n]) => n > 1).map(([k]) => k.split("|")[1]);
+    if (iki.length) { eoTxt("Aynı okul numarası birden çok fotoğrafta: " + iki.join(", ") + ". Kırmızı kutuları düzelt."); return; }
     const noAd = items.filter(i => i.blob && !eoNo(i)).length;
     const fotolar = [];
     for (const it of list) {
