@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.8
+// @version      0.3.9
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -470,29 +470,32 @@
       if (oto && acik && son === acik.no && yuklenenler().has(acik.no)) {   // az önce kaydedilen öğrenci: sıradakine geç
         GM_setValue('otoSon', ''); ac(); durum(acik.no + ' kaydedildi. Sıradaki açılıyor...'); setTimeout(sonraki, 900); return;
       }
+      // Kaydet adımı: numara yeniden doğrulanır; "Onayla" varsa önce ona, sonra Kaydet'e basılır.
+      // Kaydet sayfayı yenileyince yukarıdaki dal sıradaki öğrenciyi açar.
+      const kaydetAdim = f => {
+        if (!GM_getValue('tamOto', false)) return;
+        const a2 = acikOgrenciNo(), k = kaydetDugmeleri()[0];
+        if (!a2 || a2.no !== f.no) { otoDurdur('Numara doğrulanamadı, otomatik durdu.'); return; }
+        if (!k) { otoDurdur('Kaydet düğmesi bulunamadı, otomatik durdu. “Kaydet düğmesini tanıt” ile disket simgesini gösterin.'); return; }
+        const onay = belgeler().flatMap(d => [...d.querySelectorAll('input[type=submit],input[type=button],button,a')])
+          .find(b => gorunur(b) && !b.closest('#vf-panel') && /onayla/i.test(dugmeYazi(b)) && !/iptal|vazge|sil|delete|cancel/i.test(dugmeYazi(b)));
+        const kaydet = () => { const k2 = kaydetDugmeleri()[0] || k; yuklendi(f.no); GM_setValue('otoSon', f.no); GM_setValue('otoZaman', Date.now()); durum(f.no + ' kaydediliyor...'); k2.click(); };
+        if (onay) { onay.click(); setTimeout(kaydet, 1200); } else kaydet();
+      };
+      // Aynı öğrenciye 3 dk içinde ikinci kez kendiliğinden konmaz: e-Okul fotoğraf seçilince sayfayı yeniliyor,
+      // her açılışta yeniden konunca sayfa durmadan gelip gidiyordu. Yenilenen sayfada sıra Kaydet'tedir.
+      let yer = null; try { yer = JSON.parse(GM_getValue('yerlesen', 'null')); } catch (e) { yer = null; }
+      if (f && !yuklenenler().has(f.no) && yer && yer.no === f.no && Date.now() - yer.zaman < 180000) {
+        ac();
+        if (oto) { durum(f.no + ' fotoğrafı kondu, Kaydet’e basılıyor...'); setTimeout(() => kaydetAdim(f), 1500); }
+        else durum(f.no + ' fotoğrafı kondu. Önizlemeyi kontrol edip Kaydet’e basın.');
+        return;
+      }
       if (f && !yuklenenler().has(f.no) && dosyaKutulari().length) {
         ac();
-        // Aynı öğrenciye sayfa açılışında 3 dk içinde ikinci kez kendiliğinden konmaz: e-Okul fotoğraf seçilince sayfayı
-        // yeniliyorsa her açılışta yeniden konup sayfa durmadan gelip gidiyordu. Elle "Fotoğrafı yerleştir" her zaman çalışır.
-        let yer = null; try { yer = JSON.parse(GM_getValue('yerlesen', 'null')); } catch (e) { yer = null; }
-        if (yer && yer.no === f.no && Date.now() - yer.zaman < 180000) {
-          durum(f.no + ' fotoğrafı az önce kutuya kondu, e-Okul sayfayı yeniledi. Önizlemeyi kontrol edip Kaydet’e basın.');
-          if (oto) otoDurdur(f.no + ' fotoğrafı kondu ama sayfa yenilendi; otomatik durdu. Kaydet’e elle basın.');
-          return;
-        }
-        GM_setValue('yerlesen', JSON.stringify({ no: f.no, zaman: Date.now() }));
+        GM_setValue('yerlesen', JSON.stringify({ no: f.no, zaman: Date.now() })); GM_setValue('otoZaman', Date.now());
         if (!yerlestirFoto(f) || !oto) return;
-        setTimeout(() => {
-          if (!GM_getValue('tamOto', false)) return;
-          const a2 = acikOgrenciNo(), k = kaydetDugmeleri()[0];
-          if (!a2 || a2.no !== f.no) { durum('Numara doğrulanamadı, otomatik durdu.'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return; }
-          if (!k) { durum('Kaydet düğmesi bulunamadı, otomatik durdu. Kaydet’e elle basın.'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return; }
-          // fotoğraf seçilince açılan "Onayla" düğmesi varsa önce ona basılır, sonra Kaydet
-          const onay = belgeler().flatMap(d => [...d.querySelectorAll('input[type=submit],input[type=button],button,a')])
-            .find(b => gorunur(b) && !b.closest('#vf-panel') && /onayla/i.test(dugmeYazi(b)) && !/iptal|vazge|sil|delete|cancel/i.test(dugmeYazi(b)));
-          const kaydet = () => { const k2 = kaydetDugmeleri()[0] || k; yuklendi(f.no); GM_setValue('otoSon', f.no); GM_setValue('otoZaman', Date.now()); k2.click(); };
-          if (onay) { onay.click(); setTimeout(kaydet, 1200); } else kaydet();
-        }, 1200);
+        setTimeout(() => kaydetAdim(f), 1200);   // sayfa yenilenmezse buradan kaydedilir
         return;
       }
       if (oto && (elle || !acik)) { ac(); sonraki(); }
