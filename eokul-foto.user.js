@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.12
+// @version      0.3.13
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -226,8 +226,11 @@
         if (r === bas || r.cells.length <= idx || r.querySelector('table')) continue;
         const no = hucreYazi(r.cells[idx]);
         if (!/^\d{1,6}$/.test(no)) continue;
-        const tik = r.querySelector('input[type=image],a,img[onclick],[onclick]');
-        if (tik) satir.push({ tr: r, no, tik });
+        // En içteki öğe tıklanır: <a href><img onclick></a> düzeninde <a>'ya basmak img'nin işini yapmıyordu.
+        // img'ye basılınca olay <a>'ya da ulaşır. İkinci aday, ilki işe yaramazsa denenir.
+        const ic = r.querySelector('img[onclick],input[type=image],img'), dis = r.querySelector('a,[onclick]');
+        const tik = ic || dis;
+        if (tik) satir.push({ tr: r, no, tik, tik2: dis && dis !== tik ? dis : null });
       }
       if (satir.length > en.length) en = satir;
     }
@@ -405,6 +408,10 @@
       }
     }, true));
     // Sonraki öğrenci: öğrenci seçim kutusunda fotoğrafı olan ve henüz yüklenmemiş sıradaki öğrenci seçilir
+    // e-Okul sayfayı göndermeye başladıysa (önizleme / kayıt yükleniyor) bekleyen adımlar iptal: yarıda kesmesinler
+    let ayriliyor = false;
+    window.addEventListener('beforeunload', () => { ayriliyor = true; });
+    window.addEventListener('pagehide', () => { ayriliyor = true; });
     // Döngü sigortası: 40 sn içinde 4'ten fazla öğrenci açılmaya çalışıldıysa tam otomatik durur
     // (sayfa her yüklenişte yeniden öğrenci açıp ekran gelip gitmesin)
     function otoDurdur(t) { GM_setValue('tamOto', false); GM_setValue('otoSon', ''); GM_setValue('sonrakiLog', '[]'); $('#vf-oto').checked = false; ac(); durum(t); }
@@ -432,7 +439,17 @@
         const bas = -1;
         for (let k = 1; k <= L.length; k++) {
           const r = L[(bas + k + L.length) % L.length];
-          if (var_.has(r.no) && !y.has(r.no)) { kartSec({ no: r.no, ad: satirAd(r) }); durum('Açılıyor: ' + r.no + ' ' + satirAd(r)); r.tik.click(); return true; }
+          if (var_.has(r.no) && !y.has(r.no)) {
+            kartSec({ no: r.no, ad: satirAd(r) }); durum('Açılıyor: ' + r.no + ' ' + satirAd(r));
+            r.tik.click();
+            // 4 sn içinde sayfa gönderilmediyse diğer öğeye bas; o da olmazsa dur
+            setTimeout(() => {
+              if (ayriliyor) return;
+              if (r.tik2) { r.tik2.click(); setTimeout(() => { if (!ayriliyor) otoDurdur(r.no + ' ' + satirAd(r) + ' açılamadı, otomatik durdu. Sarı klasöre elle dokunun.'); }, 4000); }
+              else otoDurdur(r.no + ' ' + satirAd(r) + ' açılamadı, otomatik durdu. Sarı klasöre elle dokunun.');
+            }, 4000);
+            return true;
+          }
         }
         durum('Fotoğrafı olup yüklenmemiş öğrenci kalmadı. ✓'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return false;
       }
@@ -472,10 +489,6 @@
     // Sayfa açılınca: açık öğrencinin fotoğrafı varsa ve yüklenmediyse kutuya koy.
     // Tam otomatikte: numara yeniden doğrulanır, Kaydet'e basılır; sayfa yenilenince sıradaki öğrenci açılır.
     // Bir şey yolunda gitmezse (kutu / Kaydet yok, numara değişti, aynı öğrenci tekrar geldi) durur ve yazar.
-    // e-Okul sayfayı göndermeye başladıysa (önizleme / kayıt yükleniyor) bekleyen adımlar iptal: yarıda kesmesinler
-    let ayriliyor = false;
-    window.addEventListener('beforeunload', () => { ayriliyor = true; });
-    window.addEventListener('pagehide', () => { ayriliyor = true; });
     function otomatik(elle) {
       const v = kayitli(), acik = acikOgrenciNo(), son = GM_getValue('otoSon', '');
       let oto = !!GM_getValue('tamOto', false);
@@ -484,7 +497,7 @@
       if (!v) return;
       const f = acik && v.fotolar.find(x => x.no === acik.no);
       if (oto && acik && son === acik.no && yuklenenler().has(acik.no)) {   // az önce kaydedilen öğrenci: sıradakine geç
-        GM_setValue('otoSon', ''); ac(); durum(acik.no + ' kaydedildi. Sıradaki açılıyor...'); setTimeout(sonraki, 900); return;
+        GM_setValue('otoSon', ''); ac(); durum(acik.no + ' kaydedildi. Sıradaki açılıyor...'); setTimeout(sonraki, 1500); return;
       }
       // Kaydet adımı: numara yeniden doğrulanır; "Onayla" varsa önce ona, sonra Kaydet'e basılır.
       // Kaydet sayfayı yenileyince yukarıdaki dal sıradaki öğrenciyi açar.
