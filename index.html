@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.17">
+<meta name="version" content="3.18">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -48,6 +48,26 @@
   .it.ok{cursor:pointer}
   #ed{position:fixed;inset:0;background:rgba(2,6,23,.96);z-index:50;display:flex;align-items:center;justify-content:center;padding:12px;overflow:auto}
   #ed[hidden]{display:none}
+  #lst{position:fixed;inset:0;background:#020617;z-index:45;display:flex;justify-content:center;padding:12px;overflow:auto}
+  #lst[hidden]{display:none}
+  .lstbox{width:100%;max-width:460px;color:#e2e8f0}
+  .lstbox h3{margin:4px 0 8px;font-size:1.05rem}
+  .lstbox .row{margin-top:8px;flex-wrap:nowrap}
+  .lstbox .row .btn{flex:1;padding:11px;font-size:.88rem}
+  .lstbox textarea{width:100%;min-height:70px;padding:8px;border-radius:10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;font:inherit;font-size:.82rem}
+  .lstbox select{width:100%;padding:9px;border-radius:10px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;font:inherit}
+  #lstRows{margin-top:8px}
+  .lr{display:flex;gap:6px;align-items:center;margin:4px 0}
+  .lr span{flex:0 0 26px;color:#64748b;font-size:.75rem;text-align:right}
+  .lr input{min-width:0;padding:7px 8px;border-radius:8px;background:#0f172a;color:#e2e8f0;border:1px solid #334155;font:inherit;font-size:.85rem}
+  .lr .ln{flex:0 0 74px}.lr .lm{flex:1}
+  .lr button{flex:0 0 30px;height:30px;border-radius:8px;border:1px solid #334155;background:#1e293b;color:#f87171;cursor:pointer}
+  .lr.done input{border-color:#166534}
+  #lstMsg{font-size:.8rem;color:#94a3b8;margin-top:6px;min-height:1.2em}
+  #camStu{display:flex;align-items:center;gap:8px;margin:0 0 8px;background:#0c4a6e;border:1px solid #38bdf8;border-radius:12px;padding:6px 8px;color:#e0f2fe;font-size:.9rem}
+  #camStu[hidden]{display:none}
+  #camStu b{flex:1;text-align:center;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #camStu button{flex:0 0 38px;height:34px;border-radius:8px;border:1px solid #38bdf8;background:#075985;color:#fff;font-size:1rem;cursor:pointer}
   .edbox{width:100%;max-width:420px}
   .edtitle{font-size:.85rem;color:var(--mut);text-align:center;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .edview{position:relative;display:table;margin:0 auto}
@@ -118,6 +138,7 @@
     .camtop select{flex-basis:100%}
     #camLive,#camRev{grid-column:1;grid-row:1/4}
     #camInfo{grid-column:2;grid-row:2}
+    #camStu{grid-column:2;grid-row:1;align-self:end}
     #camLiveBtns,#camRevBtns{grid-column:2;grid-row:3}
     #camV,#camC{max-height:calc(100vh - 24px)}
     .shutter{width:62px;height:62px}
@@ -125,7 +146,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.17</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.18</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -133,6 +154,8 @@
   <input id="file" type="file" accept="image/*" multiple hidden>
   <div style="height:8px"></div>
   <button class="btn sec" id="camBtn" type="button">📷 Uygulama içinden çek (tek tek kontrol ederek)</button>
+  <div style="height:8px"></div>
+  <button class="btn sec" id="lstBtn" type="button">📋 Sınıf listesi (çekimde okul no + ad soyad ile adlandır)</button>
   <div class="clsrow"><span>Sınıf / şube</span><input id="cls" type="text" placeholder="ör. 6-A (isteğe bağlı, ZIP'te klasör olur)" autocomplete="off"></div>
   <div id="count" class="sub" style="margin:8px 0 0"></div>
 </section>
@@ -233,9 +256,29 @@
   </div>
 </div>
 
+<div id="lst" hidden>
+  <div class="lstbox">
+    <h3>📋 Sınıf listesi <small id="lstCls" style="color:#94a3b8;font-weight:400"></small></h3>
+    <div class="sub" style="margin:0">Listenin fotoğrafını çek (e-Okul çıktısı), Excel/CSV seç ya da metni yapıştır. Okunanları aşağıda kontrol edip düzelt.</div>
+    <div class="row"><label class="btn" for="lstImg">📷 Listenin fotoğrafı</label><label class="btn sec" for="lstFile">📄 Excel / CSV</label></div>
+    <input id="lstImg" type="file" accept="image/*" hidden><input id="lstFile" type="file" accept=".xlsx,.xls,.csv,.txt" hidden>
+    <textarea id="lstText" placeholder="Ya da buraya yapıştır: her satırda okul no ve ad soyad (ör. 1234 AHMET YILMAZ)"></textarea>
+    <div class="row"><button class="btn sec" id="lstParse" type="button">Yapıştırılanı ekle</button><button class="btn sec" id="lstAdd" type="button">+ Öğrenci ekle</button></div>
+    <div id="lstMsg"></div>
+    <div id="lstRows"></div>
+    <div style="margin-top:10px"><select id="lstFmt" aria-label="Dosya adı biçimi">
+      <option value="nsp">Dosya adı: 1234 AHMET YILMAZ.jpg</option>
+      <option value="nus">Dosya adı: 1234_AHMET_YILMAZ.jpg</option>
+      <option value="no">Dosya adı: 1234.jpg (sadece okul no)</option>
+    </select></div>
+    <div class="row"><button class="btn sec" id="lstDel" type="button">Listeyi sil</button><button class="btn" id="lstSave" type="button">Kaydet</button></div>
+  </div>
+</div>
+
 <div id="cam" hidden>
   <div class="cambox">
     <div class="row camtop"><select id="camSel" aria-label="Kamera"></select><span id="camCnt"></span><button class="btn sec" id="camSetBtn" type="button" aria-label="Kamera ayarları" title="Kamera ayarları">⚙</button><button class="btn sec" id="camClose" type="button">Bitir</button></div>
+    <div id="camStu" hidden><button type="button" id="stuPrev" aria-label="Önceki öğrenci">◀</button><b id="stuName"></b><button type="button" id="stuNext" aria-label="Sonraki öğrenci (gelmedi)">▶</button></div>
     <div class="camview" id="camLive"><video id="camV" playsinline muted autoplay></video><div class="camguide"></div><div id="camFocus"></div></div>
     <div class="camview" id="camRev" hidden><canvas id="camC" width="399" height="513"></canvas></div>
     <div class="edhint" id="camInfo"></div>
@@ -303,7 +346,7 @@
     if (!it.id) it.id = newId();
     clearTimeout(it._pt);
     it._pt = setTimeout(() => {
-      DB.put({ id: it.id, name: it.name, cls: it.cls || "", man: it.man || null, face: it.face || null, file: it.file, cut: it.cutBlob || null })
+      DB.put({ id: it.id, name: it.name, cls: it.cls || "", stu: it.stu || "", man: it.man || null, face: it.face || null, file: it.file, cut: it.cutBlob || null })
         .catch(e => { console.warn("kayıt", e); $("#saveInfo").textContent = "⚠ Telefona kaydedilemedi (depolama dolu olabilir): " + (e && e.message || e); });
     }, 300);
   }
@@ -1419,6 +1462,7 @@
   function camLive() {
     cam.it = null; $("#camLive").hidden = false; $("#camRev").hidden = true; $("#camLiveBtns").hidden = false; $("#camRevBtns").hidden = true;
     $("#camShot").disabled = !cam.replace && items.length >= 40; $("#camSel").disabled = false; camCount();
+    stuBar();
     requestAnimationFrame(camGuide); liveOk = false; okRun = 0; document.querySelector(".camguide").classList.remove("ok", "bad");
     if (cam.replace) camInfo("“" + cam.replace.name + "” yeniden çekiliyor. Yüzü yeşil ovale getir.");
     else camInfo(items.length >= 40 ? "40 fotoğraf sınırına ulaşıldı. Bitir'e bas." : (camOpt.auto ? "Yüzü yeşil ovale getir. Uygun olunca kendiliğinden çekilir." : "Yüzü yeşil ovale getir. Uygun olunca çerçeve yeşil olur.") + " Telefonu yan tutarak da çekebilirsin.");
@@ -1454,7 +1498,7 @@
   async function openCam(replace) {
     if (busy || cam.on) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { msg("Bu tarayıcı kamera erişimini desteklemiyor."); return; }
-    cam.replace = replace || null; cam.armed = true;
+    cam.replace = replace || null; cam.armed = true; cam.si = -1; stuAdvance();
     $("#camCls").value = $("#cls").value;
     cam.on = true; $("#cam").hidden = false; document.body.style.overflow = "hidden";
     camLive(); camInfo("Kamera açılıyor...");
@@ -1489,8 +1533,9 @@
     { const x = camC.getContext("2d"), s = Math.max(camC.width / c.width, camC.height / c.height); x.fillStyle = "#000"; x.fillRect(0, 0, camC.width, camC.height); x.drawImage(c, (camC.width - c.width * s) / 2, (camC.height - c.height * s) / 2, c.width * s, c.height * s); }
     camInfo("İşleniyor...");
     const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.97));
-    const name = rep ? rep.name : "cekim_" + String(++cam.seq).padStart(2, "0") + ".jpg";
-    const it = { id: newId(), file: new File([blob], name, { type: "image/jpeg" }), name, cls: rep ? rep.cls : curCls(), cut: null, info: null, blob: null, url: null, man: null, cam: true };
+    const stu = rep ? null : curStu();   // listeden sıradaki öğrenci
+    const name = rep ? rep.name : stu ? stuFile(stu) : "cekim_" + String(++cam.seq).padStart(2, "0") + ".jpg";
+    const it = { id: newId(), file: new File([blob], name, { type: "image/jpeg" }), name, cls: rep ? rep.cls : curCls(), stu: rep ? rep.stu : stu ? stu.no : "", cut: null, info: null, blob: null, url: null, man: null, cam: true };
     makeCell(it); setSt(it, "işleniyor...");
     if (rep) camSwap(rep, it); else { items.push(it); persist(it); persistOrder(); }
     try {
@@ -1500,7 +1545,7 @@
       cam.it = it; $("#camName").value = rep ? rep.name.replace(/\.jpg$/i, "") : "";
     } catch (e) {
       console.error(e);
-      if (rep) { camSwap(it, rep); if (it.url) URL.revokeObjectURL(it.url); } else { camRemove(it); cam.seq--; }
+      if (rep) { camSwap(it, rep); if (it.url) URL.revokeObjectURL(it.url); } else { camRemove(it); if (!stu) cam.seq--; }
       cam.proc = false; busy = false; camLive(); camInfo("İşlenemedi: " + (e.message || e) + " — tekrar çek.", "warn"); camAfter(); return;
     }
     cam.proc = false; busy = false; camAfter(); camReview();
@@ -1531,7 +1576,7 @@
     const it = cam.it; if (!it) return camLive();
     cam.armed = true;   // tekrar çekimde aynı öğrenci otomatik çekilebilir
     if (cam.replace) { camSwap(it, cam.replace); if (it.url) URL.revokeObjectURL(it.url); }   // eskisi geri gelir, yeni çekim bekler
-    else { if (it.file.name === "cekim_" + String(cam.seq).padStart(2, "0") + ".jpg") cam.seq--; camRemove(it); }   // numara boşa gitmesin
+    else { if (!it.stu && it.file.name === "cekim_" + String(cam.seq).padStart(2, "0") + ".jpg") cam.seq--; camRemove(it); }   // numara boşa gitmesin
     camAfter(); camLive();
   };
   $("#camName").oninput = e => {
@@ -1541,16 +1586,21 @@
     it.el.querySelector(".nm").textContent = nmText(it); persist(it);
   };
   $("#camEdit").onclick = () => { if (!cam.it) return; ed.onClose = camReview; openEditor(cam.it); };
-  $("#camNext").onclick = () => { if (cam.replace) closeCam(); else camLive(); };
+  // listedeki bir öğrenci yeniden çekildiyse (◀ ile geri gelinip) eski fotoğrafı kaldırılır
+  function stuDedupe() {
+    const it = cam.it; if (!it || !it.stu) return;
+    items.filter(i => i !== it && (i.cls || "") === (it.cls || "") && i.stu === it.stu).forEach(camRemove);
+  }
+  $("#camNext").onclick = () => { if (cam.replace) closeCam(); else { stuDedupe(); stuAdvance(); camLive(); } };
   // sınıf: ana ekran ve kamera aynı değeri kullanır, bu cihazda hatırlanır
   function curCls() { return $("#cls").value.trim().replace(/[\\/:*?"<>|]+/g, "_"); }
   try { $("#cls").value = localStorage.getItem("bgr-sinif") || ""; } catch (e) {}
-  const clsSet = v => { $("#cls").value = v; $("#camCls").value = v; try { localStorage.setItem("bgr-sinif", v); } catch (e) {} };
+  const clsSet = v => { $("#cls").value = v; $("#camCls").value = v; try { localStorage.setItem("bgr-sinif", v); } catch (e) {} if (cam.on) { cam.si = -1; stuAdvance(); stuBar(); } lstBtnTxt(); };
   $("#cls").oninput = e => clsSet(e.target.value);
   $("#camCls").oninput = e => clsSet(e.target.value);
   $("#camClose").onclick = () => {
     if (cam.proc) return;
-    closeCam();
+    stuDedupe(); closeCam();
     const ok = items.filter(i => i.blob).length;
     if (ok) msg(ok + " fotoğraf hazır. Düzenlemek ya da yeniden çekmek için fotoğrafa dokun, sonra ZIP olarak indir.");
   };
@@ -1600,6 +1650,10 @@
     const bad = items.filter(i => i.blob && warnsOf(i).length);
     if (bad.length) files.push({ name: "yeniden_cekilecekler.txt", data: new TextEncoder().encode("Yeniden çekilmesi önerilenler (otomatik tahmin):\r\n" + bad.map(i => (i.cls ? i.cls + " / " : "") + i.name + " - " + warnsOf(i).join(", ")).join("\r\n") + "\r\n") });
     const clsList = [...new Set(items.filter(i => i.blob).map(i => i.cls || ""))];
+    // listesi olan sınıflarda fotoğrafı olmayan öğrenciler
+    const miss = [];
+    for (const c of clsList) { const L = lstGet(c); L.forEach(st => { if (!items.some(i => i.blob && (i.cls || "") === c && i.stu === st.no)) miss.push((c ? c + " / " : "") + st.no + " " + st.name); }); }
+    if (miss.length) files.push({ name: "cekilmeyenler.txt", data: new TextEncoder().encode("Fotoğrafı çekilmeyen öğrenciler:\r\n" + miss.join("\r\n") + "\r\n") });
     const z = makeZip(files), a = document.createElement("a");
     a.href = URL.createObjectURL(z);
     a.download = "vesikalik_" + (clsList.length === 1 && clsList[0] ? clsList[0] + "_" : "") + new Date().toISOString().slice(0, 10) + ".zip";
@@ -1615,6 +1669,146 @@
       else msg("Bu tarayıcı çoklu dosya paylaşımını desteklemiyor, ZIP'i kullan.");
     } catch (e) { if (e.name !== "AbortError") msg("Paylaşım hatası: " + e.message); }
   };
+
+  // ---------- sınıf listesi: fotoğraftan (OCR), Excel/CSV'den ya da yapıştırarak; çekimde sıradaki öğrenci adıyla kaydedilir ----------
+  const LST_KEY = "bgr-liste";
+  const lstAll = () => { try { return JSON.parse(localStorage.getItem(LST_KEY) || "{}"); } catch (e) { return {}; } };
+  const lstGet = c => lstAll()[c || ""] || [];
+  const lstPut = (c, L) => { const o = lstAll(); if (L && L.length) o[c || ""] = L; else delete o[c || ""]; try { localStorage.setItem(LST_KEY, JSON.stringify(o)); } catch (e) {} };
+  const fmtGet = () => { try { return localStorage.getItem("bgr-adbicim") || "nsp"; } catch (e) { return "nsp"; } };
+  const safeName = t => t.replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, " ").trim();
+  function stuFile(st) {
+    const f = fmtGet(), nm = safeName(st.name);
+    if (f === "no" || !nm) return st.no + ".jpg";
+    return f === "nus" ? (st.no + "_" + nm).replace(/ /g, "_") + ".jpg" : st.no + " " + nm + ".jpg";
+  }
+  const hasPhoto = (c, no) => items.some(i => (i.cls || "") === c && i.stu === no);
+  function lstBtnTxt() { const n = lstGet(curCls()).length; $("#lstBtn").textContent = n ? "📋 Sınıf listesi: " + n + " öğrenci (" + (curCls() || "sınıfsız") + ")" : "📋 Sınıf listesi (çekimde okul no + ad soyad ile adlandır)"; }
+  // kamerada sıradaki öğrenci: fotoğrafı olmayan ilk öğrenci (cam.si'den sonra)
+  function stuAdvance() {
+    const L = lstGet(curCls()); if (!L.length) { cam.si = -1; return; }
+    for (let k = 1; k <= L.length; k++) { const j = (cam.si + k + L.length) % L.length; if (!hasPhoto(curCls(), L[j].no)) { cam.si = j; return; } }
+    cam.si = -2;   // herkes çekildi
+  }
+  const curStu = () => { const L = lstGet(curCls()); return cam.si >= 0 && L[cam.si] ? L[cam.si] : null; };
+  function stuBar() {
+    const L = lstGet(curCls()), bar = $("#camStu");
+    bar.hidden = !L.length || !!cam.replace; if (bar.hidden) return;
+    const done = L.filter(st => hasPhoto(curCls(), st.no)).length;
+    if (cam.si === -2) { $("#stuName").textContent = "✓ Listede herkes çekildi (" + done + "/" + L.length + ")"; return; }
+    const st = curStu(); if (!st) { cam.si = -1; stuAdvance(); return stuBar(); }
+    $("#stuName").textContent = (cam.si + 1) + "/" + L.length + " · " + st.no + " " + st.name + (hasPhoto(curCls(), st.no) ? " (çekildi)" : "");
+  }
+  // ◀ ▶: listede elle gezin (gelmeyeni atla ya da çekileni tekrar çek)
+  const stuMove = d => { const L = lstGet(curCls()); if (!L.length || cam.it || cam.proc) return; cam.si = ((cam.si < 0 ? 0 : cam.si) + d + L.length) % L.length; stuBar(); };
+  $("#stuPrev").onclick = () => stuMove(-1);
+  $("#stuNext").onclick = () => stuMove(1);
+
+  // satır ayrıştırma: baştaki sayılar (sıra no, okul no), ardından ad soyad; cinsiyet vb. atılır
+  const LETTER = /^[A-Za-zÇĞİÖŞÜÂÎÛçğıöşüâîû'’.\-]+$/;
+  const DROP = new Set(["ERKEK", "KIZ", "KADIN", "E", "K", "BAY", "BAYAN"]);
+  function parseLine(line) {
+    const t = line.replace(/[|_;,\t]+/g, " ").replace(/\s+/g, " ").trim();
+    const m = /^((?:\d{1,6}[.)]?\s+)+)(.+)$/.exec(t); if (!m) return null;
+    const nums = m[1].trim().split(/\s+/).map(x => x.replace(/\D/g, "")).filter(Boolean);
+    const no = nums.length >= 2 ? nums[1] : nums[0];
+    const words = [];
+    for (const w of m[2].split(" ")) {
+      if (/\d/.test(w)) { if (words.length >= 2) break; else continue; }   // ad soyaddan sonra gelen sayılar (tarih vb.) kesilir
+      if (!LETTER.test(w) || DROP.has(w.toLocaleUpperCase("tr"))) continue;
+      words.push(w.toLocaleUpperCase("tr"));
+    }
+    return words.length && no ? { no, name: words.join(" ") } : null;
+  }
+  function parseText(txt) { const out = []; txt.split(/\r?\n/).forEach(l => { const r = parseLine(l); if (r) out.push(r); }); return out; }
+  // tablo (Excel/CSV): başlık satırında Öğrenci No / Adı / Soyadı sütunları aranır; bulunamazsa satırlar metin gibi okunur
+  function parseRows(rows) {
+    const norm = v => String(v == null ? "" : v).trim();
+    for (let h = 0; h < Math.min(rows.length, 15); h++) {
+      const r = rows[h].map(c => norm(c).toLocaleLowerCase("tr"));
+      const iNo = r.findIndex(c => /(öğrenci|okul)\s*(no|numara)|^numara$|^no$/.test(c));
+      const iFull = r.findIndex(c => /ad[ıi]\s*soyad/.test(c));
+      const iAd = r.findIndex(c => /^ad[ıi]?$/.test(c)), iSoy = r.findIndex(c => /^soyad[ıi]?$/.test(c));
+      if (iNo >= 0 && (iFull >= 0 || iAd >= 0)) {
+        const out = [];
+        for (const row of rows.slice(h + 1)) {
+          const no = norm(row[iNo]).replace(/\D/g, ""); if (!no) continue;
+          const name = (iFull >= 0 ? norm(row[iFull]) : (norm(row[iAd]) + " " + (iSoy >= 0 ? norm(row[iSoy]) : ""))).replace(/\s+/g, " ").trim().toLocaleUpperCase("tr");
+          if (name) out.push({ no, name });
+        }
+        return out;
+      }
+    }
+    return parseText(rows.map(r => r.map(norm).join(" ")).join("\n"));
+  }
+  function loadScript(src) { return new Promise((res, rej) => { const e = document.createElement("script"); e.src = src; e.onload = res; e.onerror = () => rej(new Error("indirilemedi: " + src)); document.head.appendChild(e); }); }
+
+  // düzenleme penceresi
+  let lstW = [];
+  function lstDraw() {
+    const box = $("#lstRows"); box.innerHTML = "";
+    lstW.forEach((st, i) => {
+      const d = document.createElement("div"); d.className = "lr" + (hasPhoto(curCls(), st.no) ? " done" : "");
+      d.innerHTML = '<span></span><input class="ln" inputmode="numeric" placeholder="No"><input class="lm" placeholder="AD SOYAD"><button type="button" aria-label="Sil">✕</button>';
+      d.children[0].textContent = i + 1;
+      const [ , n, m, x] = d.children; n.value = st.no; m.value = st.name;
+      n.oninput = () => { st.no = n.value.replace(/\D/g, ""); };
+      m.oninput = () => { st.name = m.value.toLocaleUpperCase("tr"); };
+      x.onclick = () => { lstW.splice(i, 1); lstDraw(); };
+      box.appendChild(d);
+    });
+    $("#lstMsg").textContent = lstW.length ? lstW.length + " öğrenci. Hatalı okunan varsa düzelt, sonra Kaydet." : "Liste boş.";
+  }
+  function lstMerge(add, src) {
+    if (!add.length) { $("#lstMsg").textContent = src + ": öğrenci satırı bulunamadı. Fotoğrafı daha yakından/düz çek ya da elle ekle."; return; }
+    const seen = new Set(lstW.map(s => s.no)); let n = 0;
+    add.forEach(st => { if (!seen.has(st.no)) { seen.add(st.no); lstW.push(st); n++; } });
+    lstDraw(); $("#lstMsg").textContent = src + ": " + n + " öğrenci eklendi (toplam " + lstW.length + "). Kontrol edip Kaydet.";
+  }
+  $("#lstBtn").onclick = () => {
+    lstW = lstGet(curCls()).map(s => ({ ...s }));
+    $("#lstCls").textContent = curCls() ? "· " + curCls() : "· (sınıf girilmedi)";
+    $("#lstFmt").value = fmtGet(); $("#lstText").value = "";
+    $("#lst").hidden = false; document.body.style.overflow = "hidden"; lstDraw();
+  };
+  const lstClose = () => { $("#lst").hidden = true; document.body.style.overflow = ""; };
+  $("#lstSave").onclick = () => {
+    const L = lstW.filter(s => s.no && s.name);
+    lstPut(curCls(), L);
+    try { localStorage.setItem("bgr-adbicim", $("#lstFmt").value); } catch (e) {}
+    lstClose(); lstBtnTxt(); msg(L.length ? L.length + " öğrencilik liste kaydedildi. Uygulama içinden çekimde sıradaki öğrencinin adıyla kaydedilir." : "Liste boş kaydedildi.");
+  };
+  $("#lstDel").onclick = () => { if (!lstW.length || confirm("Bu sınıfın listesi silinsin mi? (Fotoğraflar silinmez)")) { lstW = []; lstDraw(); } };
+  $("#lstAdd").onclick = () => { lstW.push({ no: "", name: "" }); lstDraw(); const ins = $("#lstRows").querySelectorAll(".ln"); if (ins.length) ins[ins.length - 1].focus(); };
+  $("#lstParse").onclick = () => { lstMerge(parseText($("#lstText").value), "Yapıştırılan"); $("#lstText").value = ""; };
+  $("#lstFile").onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    try {
+      if (/\.(csv|txt)$/i.test(f.name)) { const t = await f.text(); lstMerge(parseRows(t.split(/\r?\n/).map(l => l.split(/[;,\t]/))), f.name); return; }
+      $("#lstMsg").textContent = "Excel okunuyor...";
+      if (!window.XLSX) await loadScript("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js");
+      const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "" });
+      lstMerge(parseRows(rows), f.name);
+    } catch (er) { $("#lstMsg").textContent = "Dosya okunamadı: " + (er.message || er); }
+  };
+  // listenin fotoğrafı: Tesseract (Türkçe) ile telefonda okunur, internete gönderilmez
+  $("#lstImg").onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    $("#lstMsg").textContent = "Okuma modeli hazırlanıyor (ilk seferde ~5 MB indirilir)...";
+    try {
+      if (!window.Tesseract) await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
+      // okunurluk için: en az 2000 px genişlik, gri ton
+      const bmp = await createImageBitmap(f), sc = Math.min(3, Math.max(1, 2000 / bmp.width));
+      const c = document.createElement("canvas"); c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
+      const x = c.getContext("2d"); x.filter = "grayscale(1) contrast(1.4)"; x.drawImage(bmp, 0, 0, c.width, c.height);
+      const w = await Tesseract.createWorker("tur", 1, { logger: m => { if (m.status === "recognizing text") $("#lstMsg").textContent = "Liste okunuyor... %" + Math.round(m.progress * 100); } });
+      await w.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
+      const { data } = await w.recognize(c); await w.terminate();
+      lstMerge(parseText(data.text), "Fotoğraf");
+    } catch (er) { console.error(er); $("#lstMsg").textContent = "Okunamadı: " + (er.message || er) + " (internet gerekli ilk seferde)"; }
+  };
+  lstBtnTxt();
 
   // ---------- listeyi temizle ----------
   $("#clear").onclick = async () => {
@@ -1650,7 +1844,7 @@
     busy = true;
     const pos = id => { const i = order.indexOf(id); return i < 0 ? 1e9 : i; };
     recs.sort((a, b) => pos(a.id) - pos(b.id));
-    items = recs.map(r => ({ id: r.id, file: r.file, name: r.name, cls: r.cls || "", man: r.man || null, face: r.face || null, cutBlob: r.cut || null, cut: null, info: null, blob: null, url: null }));
+    items = recs.map(r => ({ id: r.id, file: r.file, name: r.name, cls: r.cls || "", stu: r.stu || "", man: r.man || null, face: r.face || null, cutBlob: r.cut || null, cut: null, info: null, blob: null, url: null }));
     $("#grid").innerHTML = ""; items.forEach(makeCell);
     msg("Önceki çalışmadan " + items.length + " fotoğraf geri yükleniyor...");
     for (const it of items) {
