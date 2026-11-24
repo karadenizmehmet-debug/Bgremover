@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Vesikalık – e-Okul fotoğraf yükleyici
 // @namespace    https://karadenizmehmet-debug.github.io/Bgremover/
-// @version      0.3.3
+// @version      0.3.4
 // @description  Vesikalık uygulamasında hazırlanan öğrenci fotoğraflarını e-Okul'da açık öğrencinin fotoğraf kutusuna okul numarasına göre yerleştirir. Kaydet / Yükle düğmesine öğretmen basar.
 // @author       Mehmet Karadeniz, 2026-2027
 // @match        https://e-okul.meb.gov.tr/*
@@ -119,11 +119,6 @@
   function acikOgrenciNo() {
     const sec = ogrenciSecimi();
     if (sec && sec.s.selectedIndex >= 0) { const o = sec.s.options[sec.s.selectedIndex]; const n = secenekNo(o.text); if (n && harfli(o.text) && !donemMi(o.text)) return { no: n, kaynak: 'öğrenci seçimi: ' + o.text.trim() }; }
-    // kart listesinde son dokunulan öğrenci (10 dk içinde)
-    if (sonKart && Date.now() - sonKart.zaman < 600000) return { no: sonKart.no, kaynak: 'dokunulan kart: ' + sonKart.no + '-' + sonKart.ad };
-    // sayfada tek öğrenci kartı varsa onun numarası
-    { const K = kartlar(), farkli = [...new Set(K.map(k => k.no))];
-      if (farkli.length === 1) return { no: farkli[0], kaynak: 'başlık: ' + K[0].no + '-' + K[0].ad }; }
     // e-Okul "Öğrenci Resim İşlemleri": Öğrenci Bilgileri bölümünde "Okul No" etiketi, yanındaki kutuda numara
     for (const d of belgeler()) for (const el of d.querySelectorAll('td,th,span,label,div')) {
       if (el.children.length > 2 || el.closest('#vf-panel') || !/^\s*(okul|öğrenci)\s*no\s*:?\s*$/i.test(el.textContent)) continue;
@@ -147,6 +142,11 @@
         if (/okulno|ogrno|ogrencino|ogrenci_no|okul_no/i.test((i.id || '') + (i.name || '')) && /^\d{1,6}$/.test((i.value || '').trim())) return { no: i.value.trim(), kaynak: 'kutu: ' + (i.id || i.name) };
       }
     }
+    // sayfada numara yazmıyorsa: listede son dokunulan öğrenci (sarı simge / kart, 10 dk içinde)
+    if (sonKart && Date.now() - sonKart.zaman < 600000) return { no: sonKart.no, kaynak: 'dokunulan: ' + sonKart.no + '-' + sonKart.ad };
+    // sayfada tek öğrenci kartı varsa onun numarası
+    { const K = kartlar(), farkli = [...new Set(K.map(k => k.no))];
+      if (farkli.length === 1) return { no: farkli[0], kaynak: 'başlık: ' + K[0].no + '-' + K[0].ad }; }
     return null;
   }
 
@@ -232,6 +232,8 @@
     return en;
   }
 
+  // satırdaki ad soyad: rakam olmayan, harfli hücreler (T.C. no, okul no, sınıf hariç)
+  const satirAd = r => [...r.tr.cells].map(hucreYazi).filter(t => /^[A-ZÇĞİÖŞÜ][A-ZÇĞİÖŞÜa-zçğıöşü .'-]*$/.test(t) && !donemMi(t)).join(' ');
   // e-Okul masaüstü düzeni telefonda küçük görünür: panel yakınlaştırmadan bağımsız normal boyutta dursun
   function yerlestirKur(p) {
     const v = window.visualViewport; if (!v) return;
@@ -355,7 +357,10 @@
     belgeler().forEach(d => d.addEventListener('click', e => {
       if (!e.isTrusted || !e.target.closest || e.target.closest('#vf-panel')) return;
       const k = kartlar().find(x => x.kart.contains(e.target));
-      if (k) kartSec(k);
+      if (k) { kartSec(k); return; }
+      // "Sınıf Listesi" tablosunda dokunulan satır (sarı klasör simgesi)
+      const r = listeSatirlari().find(x => x.tr.contains(e.target));
+      if (r) kartSec({ no: r.no, ad: satirAd(r) });
     }, true));
     belgeler().forEach(d => d.addEventListener('click', e => {
       const b = e.target.closest && e.target.closest('input,button,a');
@@ -384,7 +389,7 @@
         const acik = acikOgrenciNo(), bas = acik ? L.findIndex(r => r.no === acik.no) : -1;
         for (let k = 1; k <= L.length; k++) {
           const r = L[(bas + k + L.length) % L.length];
-          if (var_.has(r.no) && !y.has(r.no)) { durum('Açılıyor: ' + r.no + ' ' + (hucreYazi(r.tr.cells[2] || r.tr.cells[0]) || '')); r.tik.click(); return true; }
+          if (var_.has(r.no) && !y.has(r.no)) { kartSec({ no: r.no, ad: satirAd(r) }); durum('Açılıyor: ' + r.no + ' ' + satirAd(r)); r.tik.click(); return true; }
         }
         durum('Fotoğrafı olup yüklenmemiş öğrenci kalmadı. ✓'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return false;
       }
@@ -439,7 +444,11 @@
           const a2 = acikOgrenciNo(), k = kaydetDugmeleri()[0];
           if (!a2 || a2.no !== f.no) { durum('Numara doğrulanamadı, otomatik durdu.'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return; }
           if (!k) { durum('Kaydet düğmesi bulunamadı, otomatik durdu. Kaydet’e elle basın.'); GM_setValue('tamOto', false); $('#vf-oto').checked = false; return; }
-          yuklendi(f.no); GM_setValue('otoSon', f.no); k.click();
+          // fotoğraf seçilince açılan "Onayla" düğmesi varsa önce ona basılır, sonra Kaydet
+          const onay = belgeler().flatMap(d => [...d.querySelectorAll('input[type=submit],input[type=button],button,a')])
+            .find(b => gorunur(b) && !b.closest('#vf-panel') && /onayla/i.test(dugmeYazi(b)) && !/iptal|vazge|sil|delete|cancel/i.test(dugmeYazi(b)));
+          const kaydet = () => { const k2 = kaydetDugmeleri()[0] || k; yuklendi(f.no); GM_setValue('otoSon', f.no); k2.click(); };
+          if (onay) { onay.click(); setTimeout(kaydet, 1200); } else kaydet();
         }, 1200);
         return;
       }
