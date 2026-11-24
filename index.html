@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.24">
+<meta name="version" content="3.24.1">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -161,7 +161,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.24</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.24.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -464,6 +464,7 @@
     const ni = d.querySelector(".no"); ni.value = it.stu || "";
     ni.onclick = e => e.stopPropagation();
     ni.onchange = () => noAta(it, ni.value);
+    ni.oninput = () => { if (ni.value.replace(/\D/g, "") !== (it.stu || "")) noAta(it, ni.value); };
     noIsaret(); d.onclick = () => it.blob ? openEditor(it) : (it.file && !it.inQ && !busy ? openOrig(it) : null); $("#grid").appendChild(d);   // işlenemeyen fotoğrafın orijinali de düzeltilebilir
   }
   function noAta(it, v) {
@@ -1580,7 +1581,7 @@
   $("#optAuto").onclick = () => { camOpt.auto = !camOpt.auto; okRun = 0; optSave(); };
   $("#optBurst").onclick = () => { camOpt.burst = !camOpt.burst; optSave(); };
   $("#optFast").onclick = () => { camOpt.fast = !camOpt.fast; optSave(); camLive(); };
-  try { $("#zipOrig").checked = localStorage.getItem("bgr-zip-orijinal") !== "0"; } catch (e) { $("#zipOrig").checked = true; }
+  try { $("#zipOrig").checked = localStorage.getItem("bgr-zip-orijinal") === "1"; } catch (e) { $("#zipOrig").checked = false; }
   $("#zipOrig").onchange = e => { try { localStorage.setItem("bgr-zip-orijinal", e.target.checked ? "1" : "0"); } catch (er) {} };
   $("#edorig").onclick = () => { const it = ed.it; if (!it || !it.file) return; closeEditor(); openOrig(it); };
 
@@ -2016,6 +2017,9 @@
     end.setUint32(12, cs, true); end.setUint32(16, off, true);
     return new Blob([...parts, ...cen, new Uint8Array(end.buffer)], { type: "application/zip" });
   }
+  const zipAd = it => it.stu ? it.stu + ".jpg" : (it.cls ? it.cls + "/" : "") + it.name;
+  // kutuya yazılıp henüz onaylanmamış (change olmamış) numaraları da al
+  function noSenk() { items.forEach(it => { const e = it.el && it.el.querySelector(".no"); if (e && e.value.replace(/\D/g, "") !== (it.stu || "")) noAta(it, e.value); }); }
   function uniqueName(n, used) {
     if (!used.has(n)) { used.add(n); return n; }
     const b = n.replace(/\.jpg$/, ""); let i = 2; while (used.has(b + "_" + i + ".jpg")) i++;
@@ -2024,8 +2028,10 @@
 
   $("#zip").onclick = async () => {
     const used = new Set(), files = [];
-    // sınıfı girilmiş fotoğraflar kendi sınıf klasörüne konur (6-A/cekim_01.jpg)
-    for (const it of items) if (it.blob) files.push({ name: uniqueName((it.cls ? it.cls + "/" : "") + it.name, used), data: new Uint8Array(await it.blob.arrayBuffer()) });
+    noSenk();
+    // okul numarası yazılan fotoğraflar ZIP'in köküne yalnız "okulno.jpg" adıyla konur (e-Okul bu adla eşleştirir);
+    // numarasızlar eskisi gibi sınıf klasörüne (6-A/cekim_01.jpg)
+    for (const it of items) if (it.blob) files.push({ name: uniqueName(zipAd(it), used), data: new Uint8Array(await it.blob.arrayBuffer()) });
     const bad = items.filter(i => i.blob && warnsOf(i).length);
     if (bad.length) files.push({ name: "yeniden_cekilecekler.txt", data: new TextEncoder().encode("Yeniden çekilmesi önerilenler (otomatik tahmin):\r\n" + bad.map(i => (i.cls ? i.cls + " / " : "") + i.name + " - " + warnsOf(i).join(", ")).join("\r\n") + "\r\n") });
     const clsList = [...new Set(items.filter(i => i.blob).map(i => i.cls || ""))];
@@ -2046,8 +2052,8 @@
   };
 
   $("#share").onclick = async () => {
-    const used = new Set();
-    const files = items.filter(i => i.blob).map(i => new File([i.blob], uniqueName(i.name, used), { type: "image/jpeg" }));
+    const used = new Set(); noSenk();
+    const files = items.filter(i => i.blob).map(i => new File([i.blob], uniqueName(i.stu ? i.stu + ".jpg" : i.name, used), { type: "image/jpeg" }));
     try {
       if (navigator.canShare && navigator.canShare({ files })) await navigator.share({ files });
       else msg("Bu tarayıcı çoklu dosya paylaşımını desteklemiyor, ZIP'i kullan.");
