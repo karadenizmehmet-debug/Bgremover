@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.26">
+<meta name="version" content="3.26.1">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -177,7 +177,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.26</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.26.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -459,8 +459,42 @@
   }));
 
   // ---------- dosya seçimi ----------
-  $("#file").onchange = e => {
+  // çekim zamanı: EXIF DateTimeOriginal (+SubSec) → dosya adındaki tarih (IMG_20261127_103045) → lastModified
+  // (Android galeri seçicisi dosyaları seçim/kimlik sırasıyla verir, çekim sırasıyla değil)
+  async function cekimZamani(f) {
+    try {
+      const b = new Uint8Array(await f.slice(0, 131072).arrayBuffer()), dv = new DataView(b.buffer);
+      if (dv.getUint16(0) === 0xFFD8) {
+        let o = 2;
+        while (o + 4 <= b.length && b[o] === 0xFF) {
+          const m = b[o + 1], L = dv.getUint16(o + 2);
+          if (m === 0xE1 && dv.getUint32(o + 4) === 0x45786966) {
+            const t = o + 10, le = dv.getUint16(t) === 0x4949;
+            const u16 = x => dv.getUint16(t + x, le), u32 = x => dv.getUint32(t + x, le);
+            const tags = ifd => { const r = {}, n = u16(ifd); for (let i = 0; i < n; i++) { const e = ifd + 2 + i * 12; r[u16(e)] = { c: u32(e + 4), v: u32(e + 8), e }; } return r; };
+            const str = g => { if (!g) return ""; const off = g.c > 4 ? g.v : g.e + 8; let z = ""; for (let i = 0; i < g.c && t + off + i < b.length; i++) { const ch = b[t + off + i]; if (!ch) break; z += String.fromCharCode(ch); } return z; };
+            const d0 = tags(u32(4)), ex = d0[0x8769] ? tags(d0[0x8769].v) : {};
+            const m2 = /^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/.exec(str(ex[0x9003]) || str(d0[0x0132]));
+            if (m2) return new Date(+m2[1], m2[2] - 1, +m2[3], +m2[4], +m2[5], +m2[6]).getTime() + (parseFloat("0." + (str(ex[0x9291]).replace(/\D/g, "") || "0")) * 1000);
+            break;
+          }
+          if (m === 0xDA) break;
+          o += 2 + L;
+        }
+      }
+    } catch (e) {}
+    const m = /(20\d\d)(\d\d)(\d\d)[_-]?(\d\d)(\d\d)(\d\d)/.exec(f.name);
+    if (m) return new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+    return f.lastModified || 0;
+  }
+  let secimNo = 0;
+  $("#file").onchange = async e => {
+    const bu = ++secimNo;
     let files = [...e.target.files];
+    $("#count").textContent = "Fotoğraflar çekim sırasına diziliyor…";
+    const z = await Promise.all(files.map(cekimZamani));
+    if (bu !== secimNo) return;   // bu arada yeni seçim yapıldı
+    files = files.map((f, i) => ({ f, t: z[i], i })).sort((a, b) => a.t - b.t || a.i - b.i).map(x => x.f);
     if (files.length > 40) { files = files.slice(0, 40); msg("İlk 40 fotoğraf alındı."); }
     items.forEach(it => it.url && URL.revokeObjectURL(it.url));
     items = files.map(f => ({ id: newId(), file: f, name: f.name.replace(/\.[^.]+$/, "") + ".jpg", cls: curCls(), cut: null, info: null, blob: null, url: null, man: null }));
@@ -2213,7 +2247,9 @@
     noSenk();
     // okul numarası yazılan fotoğraflar ZIP'in köküne yalnız "okulno.jpg" adıyla konur (e-Okul bu adla eşleştirir);
     // numarasızlar eskisi gibi sınıf klasörüne (6-A/cekim_01.jpg)
-    for (const it of items) if (it.blob) files.push({ name: uniqueName(zipAd(it), used), data: new Uint8Array(await it.blob.arrayBuffer()) });
+    // numarasızlar "s01_" önekiyle: ZIP ada göre sıralansa da çekim sırası korunur (harfle başlar, betik okul no sanmaz)
+    const sn = items.filter(i => i.blob && !i.stu).length, pad = n => String(n).padStart(Math.max(2, String(sn).length), "0"); let si = 0;
+    for (const it of items) if (it.blob) files.push({ name: uniqueName(it.stu ? zipAd(it) : (it.cls ? it.cls + "/" : "") + "s" + pad(++si) + "_" + it.name, used), data: new Uint8Array(await it.blob.arrayBuffer()) });
     const bad = items.filter(i => i.blob && warnsOf(i).length);
     if (bad.length) files.push({ name: "yeniden_cekilecekler.txt", data: new TextEncoder().encode("Yeniden çekilmesi önerilenler (otomatik tahmin):\r\n" + bad.map(i => (i.cls ? i.cls + " / " : "") + i.name + " - " + warnsOf(i).join(", ")).join("\r\n") + "\r\n") });
     const clsList = [...new Set(items.filter(i => i.blob).map(i => i.cls || ""))];
