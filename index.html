@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.25.1">
+<meta name="version" content="3.25.2">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -176,7 +176,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.25.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.25.2</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -2597,8 +2597,12 @@
       await w.terminate();
       ham.push("— numaralar —\n" + out.map(r => (r.sira || "?") + " " + (r.no || "?") + " " + r.name).join("\n"));
       $("#lstRaw").textContent = ham.join("\n"); $("#lstRawBox").hidden = false;
-      // numarası hiç okunamayan satır da listeye girer (sarı, numara boş): öğrenci kaybolmasın, elle yazılsın
-      out = out.filter(r => r.name.split(" ").filter(x => x.length >= 2).length >= 2 || r.emin);
+      // numarası hiç okunamayan satır da listeye girer (sarı, numara boş): öğrenci kaybolmasın, elle yazılsın.
+      // Ama ad gibi görünmeyen satırlar (sesli harfsiz, çok uzun, çoğu 1-2 harfli kırıntı) ve ne numarası ne cinsiyeti olanlar atılır:
+      // soluk baskı / parlayan masa "MEEYEYUYEE...", "Nİ Nİ" gibi onlarca çöp satır üretiyordu.
+      const okunan = out.length;
+      const adGibi = nm => { const t = nm.split(" "); return t.length >= 2 && t.some(x => x.length >= 3) && t.every(x => x.length <= 16 && /[AEIİOÖUÜ]/.test(x)) && t.filter(x => x.length <= 2).length * 2 < t.length + 1; };
+      out = out.filter(r => adGibi(r.name) && (r.no || r.cins));
       // aynı okul no iki satırda: güvenilir olan kalır, öteki sarı + boş
       const sayac = new Map(); out.forEach(r => r.no && sayac.set(r.no, (sayac.get(r.no) || 0) + 1));
       out.forEach(r => { if (r.no && sayac.get(r.no) > 1 && !r.emin) r.no = ""; });
@@ -2606,6 +2610,9 @@
       const unsure = out.filter(r => !r.emin || !r.no).length;
       lstMerge(out.map(r => ({ no: r.no, name: r.name, kontrol: !r.emin || !r.no })), "Fotoğraf");
       if (unsure) $("#lstMsg").textContent += " Sarı satırların numarasını kontrol et.";
+      if (out.length < 3 || okunan > out.length * 3)
+        $("#lstMsg").textContent = (out.length ? "Fotoğraftan yalnız " + out.length + " öğrenci güvenle okunabildi. " : "Fotoğraftaki liste okunamadı. ")
+          + "Baskı soluk ya da kâğıt parlıyor olabilir: listeyi ışığı yansıtmayacak açıdan, yakından ve düz çek. Olmazsa e-Okul'daki listeyi Excel olarak kaydedip 📄 Excel / CSV ile ekle.";
     } catch (er) { console.error(er); $("#lstMsg").textContent = "Okunamadı: " + (er.message || er) + " (internet gerekli ilk seferde)"; }
   };
   lstBtnTxt();
