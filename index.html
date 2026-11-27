@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.26.1">
+<meta name="version" content="3.27">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -36,6 +36,8 @@
   #grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
   .it{position:relative;background:#0f172a;border:1px solid var(--line);border-radius:10px;padding:6px;text-align:center;font-size:.7rem;color:var(--mut)}
   .it .del{position:absolute;top:2px;right:2px;z-index:2;width:30px;height:30px;border-radius:50%;border:0;background:rgba(15,23,42,.8);color:#f87171;font-size:1rem;line-height:30px;padding:0;cursor:pointer}
+  .it .orj{position:absolute;top:2px;left:2px;z-index:2;width:30px;height:30px;border-radius:50%;border:0;background:rgba(15,23,42,.8);color:#93c5fd;font-size:1rem;line-height:30px;padding:0;cursor:pointer;display:none}
+  .it.ok .orj,.it.er .orj{display:block}.it .orj.on{background:#2563eb;color:#fff}
   .it .ph{aspect-ratio:133/171;background:#111827;border-radius:6px;display:flex;align-items:center;justify-content:center;overflow:hidden}
   .it img{width:100%;height:100%;object-fit:contain}
   .it .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:4px}
@@ -177,7 +179,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.26.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.27</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -395,7 +397,7 @@
     if (!it.id) it.id = newId();
     clearTimeout(it._pt);
     it._pt = setTimeout(() => {
-      DB.put({ id: it.id, name: it.name, cls: it.cls || "", stu: it.stu || "", man: it.man || null, face: it.face || null, file: it.file, raw: it.raw || null, cut: it.cutBlob || null })
+      DB.put({ id: it.id, name: it.name, cls: it.cls || "", stu: it.stu || "", man: it.man || null, face: it.face || null, file: it.file, raw: it.raw || null, cut: it.cutBlob || null, orj: !!it.orj })
         .catch(e => { console.warn("kayıt", e); $("#saveInfo").textContent = "⚠ Telefona kaydedilemedi (depolama dolu olabilir): " + (e && e.message || e); });
     }, 300);
   }
@@ -509,7 +511,7 @@
   const nmText = it => (it.cls ? it.cls + " · " : "") + it.name;
   function makeCell(it) {   // ızgaraya ekler; yeniden çekimde camSwap yerine taşır
     const d = document.createElement("div"); d.className = "it";
-    d.innerHTML = '<button type="button" class="del" aria-label="Bu fotoğrafı sil">✕</button><div class="ph">⏳</div><div class="nm"></div><div class="st">bekliyor</div><input class="no" inputmode="numeric" placeholder="Okul no" aria-label="Okul numarası">';
+    d.innerHTML = '<button type="button" class="del" aria-label="Bu fotoğrafı sil">✕</button><button type="button" class="orj" aria-label="Orijinal haline döndür">↺</button><div class="ph">⏳</div><div class="nm"></div><div class="st">bekliyor</div><input class="no" inputmode="numeric" placeholder="Okul no" aria-label="Okul numarası">';
     // istenmeyen fotoğraf tek tek silinir (listeden, ZIP'ten ve telefondaki kayıttan)
     d.querySelector(".del").onclick = e => {
       e.stopPropagation();
@@ -519,13 +521,24 @@
       $("#count").textContent = items.length ? items.length + " fotoğraf" : "";
       msg("Fotoğraf silindi.");
     };
+    // işlenmiş fotoğraf orijinaline döner (ZIP'e orijinal girer); tekrar dokununca işlenmiş hale geçer
+    const ob = d.querySelector(".orj"); ob.classList.toggle("on", !!it.orj);
+    ob.onclick = async e => {
+      e.stopPropagation();
+      if (busy || it.inQ) { msg("İşlem sürerken değiştirilemez, bitince dene."); return; }
+      if (!it.file) return;
+      it.orj = !it.orj; ob.classList.toggle("on", it.orj); persist(it);
+      if (!it.orj && !it.cut) { if (it.url) URL.revokeObjectURL(it.url); it.blob = null; it.url = null; it.el.querySelector(".ph").textContent = "⚠"; setSt(it, "hata", "er"); updateWarnBox(); msg("Orijinal geri alındı (bu fotoğraf işlenemedi)."); return; }
+      try { await renderItem(it); msg(it.orj ? "Orijinal haline döndü, ZIP'e orijinali girecek. Geri almak için ↺'ye tekrar dokun." : "İşlenmiş haline döndü."); }
+      catch (er) { it.orj = !it.orj; ob.classList.toggle("on", it.orj); persist(it); msg("Değiştirilemedi: " + (er.message || er)); }
+    };
     d.querySelector(".nm").textContent = nmText(it); it.el = d;
     // okul numarası: yazılınca dosya adı "no AD SOYAD.jpg" (sınıf listesi varsa) ya da "no.jpg" olur; e-Okul yardımcısı buna göre yükler
     const ni = d.querySelector(".no"); ni.value = it.stu || "";
     ni.onclick = e => e.stopPropagation();
     ni.onchange = () => noAta(it, ni.value);
     ni.oninput = () => { if (ni.value.replace(/\D/g, "") !== (it.stu || "")) noAta(it, ni.value); };
-    noIsaret(); d.onclick = () => it.blob ? openEditor(it) : (it.file && !it.inQ && !busy ? openOrig(it) : null); $("#grid").appendChild(d);   // işlenemeyen fotoğrafın orijinali de düzeltilebilir
+    noIsaret(); d.onclick = () => it.orj ? msg("Bu fotoğraf orijinal halinde. Düzenlemek için önce ↺'ye dokun.") : it.blob ? openEditor(it) : (it.file && !it.inQ && !busy ? openOrig(it) : null); $("#grid").appendChild(d);   // işlenemeyen fotoğrafın orijinali de düzeltilebilir
   }
   function noAta(it, v) {
     v = String(v || "").replace(/\D/g, "").slice(0, 6);
@@ -831,7 +844,7 @@
     return w;
   }
   function updateWarnBox() {
-    const box = $("#warnBox"), bad = items.filter(i => i.blob && warnsOf(i).length);
+    const box = $("#warnBox"), bad = items.filter(i => i.blob && !i.orj && warnsOf(i).length);
     box.hidden = !bad.length; box.textContent = "";
     if (!bad.length) return;
     const h = document.createElement("b"); h.textContent = "⚠ Yeniden çekilmesi önerilenler (" + bad.length + "):"; box.appendChild(h);
@@ -1267,7 +1280,24 @@
     return b;
   }
 
+  // orijinal: JPEG ise dosyanın kendisi, değilse (HEIC/PNG) aynı boyutta JPEG'e çevrilir
+  async function origJpeg(it) {
+    const f = it.raw || it.file;
+    if (/jpe?g/i.test(f.type || "") || /\.jpe?g$/i.test(f.name || "")) return f;
+    const im = await ocrImg(f), c = document.createElement("canvas"); c.width = im.naturalWidth; c.height = im.naturalHeight;
+    const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0);
+    return await new Promise((r, j) => c.toBlob(b => b ? r(b) : j(new Error("JPEG'e çevrilemedi")), "image/jpeg", 0.92));
+  }
   async function renderItem(it) {
+    if (it.orj) {
+      const blob = await origJpeg(it);
+      if (it.url) URL.revokeObjectURL(it.url);
+      it.blob = blob; it.url = URL.createObjectURL(blob);
+      const ph = it.el.querySelector(".ph"); ph.innerHTML = ""; const im = new Image(); im.src = it.url; ph.appendChild(im);
+      it.rGain = it.gain || 1; it.rWarn = "";
+      setSt(it, "orijinal · " + Math.round(blob.size / 1024) + " KB", "ok");
+      updateWarnBox(); return;
+    }
     const [W, H] = $("#size").value.split("x").map(Number);
     updateGains();
     const blob = await encode(render(it, W, H));
@@ -2250,7 +2280,7 @@
     // numarasızlar "s01_" önekiyle: ZIP ada göre sıralansa da çekim sırası korunur (harfle başlar, betik okul no sanmaz)
     const sn = items.filter(i => i.blob && !i.stu).length, pad = n => String(n).padStart(Math.max(2, String(sn).length), "0"); let si = 0;
     for (const it of items) if (it.blob) files.push({ name: uniqueName(it.stu ? zipAd(it) : (it.cls ? it.cls + "/" : "") + "s" + pad(++si) + "_" + it.name, used), data: new Uint8Array(await it.blob.arrayBuffer()) });
-    const bad = items.filter(i => i.blob && warnsOf(i).length);
+    const bad = items.filter(i => i.blob && !i.orj && warnsOf(i).length);
     if (bad.length) files.push({ name: "yeniden_cekilecekler.txt", data: new TextEncoder().encode("Yeniden çekilmesi önerilenler (otomatik tahmin):\r\n" + bad.map(i => (i.cls ? i.cls + " / " : "") + i.name + " - " + warnsOf(i).join(", ")).join("\r\n") + "\r\n") });
     const clsList = [...new Set(items.filter(i => i.blob).map(i => i.cls || ""))];
     { const say = new Map(); items.filter(i => i.blob && i.stu).forEach(i => { const k = (i.cls || "") + "|" + i.stu; say.set(k, (say.get(k) || 0) + 1); });
@@ -2739,7 +2769,7 @@
     busy = true;
     const pos = id => { const i = order.indexOf(id); return i < 0 ? 1e9 : i; };
     recs.sort((a, b) => pos(a.id) - pos(b.id));
-    items = recs.map(r => ({ id: r.id, file: r.file, raw: r.raw || null, name: r.name, cls: r.cls || "", stu: r.stu || "", man: r.man || null, face: r.face || null, cutBlob: r.cut || null, cut: null, info: null, blob: null, url: null }));
+    items = recs.map(r => ({ id: r.id, file: r.file, raw: r.raw || null, name: r.name, cls: r.cls || "", stu: r.stu || "", man: r.man || null, face: r.face || null, cutBlob: r.cut || null, orj: !!r.orj, cut: null, info: null, blob: null, url: null }));
     $("#grid").innerHTML = ""; items.forEach(makeCell);
     msg("Önceki çalışmadan " + items.length + " fotoğraf geri yükleniyor...");
     for (const it of items) {
