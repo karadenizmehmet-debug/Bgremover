@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="author" content="Mehmet Karadeniz, 2026-2027">
 <meta name="copyright" content="© Mehmet Karadeniz, 2026-2027. Tüm hakları saklıdır.">
-<meta name="version" content="3.25">
+<meta name="version" content="3.25.1">
 <meta name="theme-color" content="#0f172a">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -176,7 +176,7 @@
 </style>
 </head>
 <body>
-<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.25</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
+<h1>e-Okul Fotoğraf Düzenleme Otomasyonu <small style="font-size:.7rem;font-weight:400;color:var(--mut);white-space:nowrap">v3.25.1</small><button type="button" id="temaDugme" aria-label="Normal moda geç"></button><button type="button" class="paylasBtn"></button></h1>
 <p class="sub">Arka planı değiştirir, yüzü ortalar, e-Okul boyutuna getirir. Her şey telefonda işlenir, fotoğraflar internete gönderilmez.</p>
 
 <section>
@@ -2278,25 +2278,128 @@
   function parseLine(line) {
     const t = line.replace(/[|_;,\t]+/g, " ").replace(/\s+/g, " ").trim();
     if (/say[ıi]s[ıi]|toplam|ö[ğg]renc|ö[ğg]re\b|s[ıi]n[ıi]f\s*(listesi|ö[ğg]retmeni)|müdür|e-?okul|\bk[ıi]z\s+ö/i.test(t)) return null;   // başlık / alt bilgi
-    const m = /^((?:\d{1,6}[.)]?\s+)+)(.+)$/.exec(t); if (!m) return null;
-    const nums = m[1].trim().split(/\s+/).map(x => x.replace(/\D/g, "")).filter(Boolean);
-    const no = nums.length >= 2 ? nums[1] : nums[0];
-    const toks = m[2].split(" ");
+    // baştaki sayılar (sıra no, okul no); önlerinde çizgi kırıntısı gibi kısa çöp olabilir (ör. "—> 135 FURKAN")
+    const m = /^([^\d]*?)((?:\d{1,6}[.)]?\s+)*)([A-Za-zÇĞİÖŞÜÂÎÛçğıöşüâîû].*)$/.exec(t); if (!m) return null;
+    if (/[A-Za-zÇĞİÖŞÜçğıöşü]{3}/.test(m[1])) return null;   // sayıdan önce kelime var: öğrenci satırı değil
+    const nums = m[2].trim().split(/\s+/).map(x => x.replace(/\D/g, "")).filter(Boolean);
+    const no = nums.length >= 2 ? nums[1] : (nums[0] || "");
+    const toks = m[3].split(" ");
     // e-Okul listesi büyük harf: satırda en az iki büyük harfli kelime varsa küçük harfli parazitler ("o", "Oo") atılır
     const upper = toks.filter(w => LETTER.test(w) && w.length >= 2 && w === w.toLocaleUpperCase("tr")).length >= 2;
-    const words = [];
+    const words = []; let cins = false;
     for (const w of toks) {
       if (/\d/.test(w)) { if (words.length >= 2) break; else continue; }   // ad soyaddan sonra gelen sayılar (tarih vb.) kesilir
-      if (DROP.has(w.toLocaleUpperCase("tr")) && w.length > 1) { if (words.length) break; else continue; }   // cinsiyet sütunu: satır sonu
+      if (DROP.has(w.replace(/[^A-Za-zÇĞİÖŞÜçğıöşü]/g, "").toLocaleUpperCase("tr")) && w.length > 1) { if (words.length) { cins = true; break; } else continue; }   // cinsiyet sütunu: satır sonu
       if (!LETTER.test(w) || w.replace(/[.'’\-]/g, "").length < 2) continue;
       if (upper && w !== w.toLocaleUpperCase("tr")) continue;
       words.push(w.toLocaleUpperCase("tr"));
     }
-    // emin: satırda sıra no + okul no birlikte okundu (tek sayı okunduysa sıra no mu okul no mu belli değil)
     if (words.some(w => HEAD.has(w.replace(/[^A-ZÇĞİÖŞÜ]/g, "")))) return null;   // başlık / alt bilgi satırı ("6. Sınıf / A Şubesi Sınıf Listesi")
-    return words.length && no ? { no, name: words.join(" "), emin: nums.length >= 2 } : null;
+    // emin: satırda sıra no + okul no birlikte okundu (tek sayı okunduysa sıra no mu okul no mu belli değil)
+    return words.length ? { no, sira: nums.length >= 2 ? nums[0] : "", name: words.join(" "), emin: nums.length >= 2, cins } : null;
   }
-  function parseText(txt) { const out = []; txt.split(/\r?\n/).forEach(l => { const r = parseLine(l); if (r) out.push(r); }); return out; }
+  function parseText(txt) { const out = []; txt.split(/\r?\n/).forEach(l => { const r = parseLine(l); if (r && r.no) out.push(r); }); return out; }
+
+  // ---- fotoğraftan okuma: Tesseract satır kutuları kullanılır ----
+  const sade = t => t.toLocaleUpperCase("tr").replace(/[ÇĞİÖŞÜ]/g, ch => "CGIOSU"["ÇĞİÖŞÜ".indexOf(ch)]).replace(/[^A-Z]/g, "");
+  function lev(a, b) {
+    const d = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) { let p = d[0]; d[0] = i; for (let j = 1; j <= b.length; j++) { const q = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, p + (a[i - 1] === b[j - 1] ? 0 : 1)); p = q; } }
+    return d[b.length];
+  }
+  // aynı öğrenci mi: harfler (boşluksuz, aksansız) neredeyse aynı ya da biri ötekini içeriyor ("ER MUHAMMED EL HIDIR" ~ "MUHAMMED EL HIDIR")
+  const ayniAd = (a, b) => { const x = sade(a), y = sade(b); if (!x || !y) return false; if (x.length >= 6 && y.length >= 6 && (x.includes(y) || y.includes(x))) return true; return lev(x, y) <= Math.max(1, Math.round(Math.min(x.length, y.length) * 0.2)); };
+  // ad kalitesi: 3+ harfli kelime çok, 1-2 harfli kırıntı az ("ÜNAL SS CARAN FES" < "ÜNAL CARAN")
+  const adPuan = nm => { const t = nm.split(" "); return t.filter(x => x.length >= 3).length * 2 - t.filter(x => x.length <= 2 && x !== "EL").length * 3 - (sade(nm).length > 40 ? 5 : 0); };
+  // bir okumanın satırları: başlık (Adı / Soyadı / Öğrenci No) ile alt bilgi (Toplam / Sayısı) arası; her satırın ad başlangıcı (nx) ve y aralığı saklanır
+  function ocrRows(data) {
+    const lines = (data.lines || []).filter(l => l.text && l.text.trim());
+    let top = -1, bot = Infinity, xOg = null;
+    for (const l of lines) {
+      const t = l.text;
+      if (top < 0 && /\bad[ıi]\b|soyad|cinsiyet|renci\s*no/i.test(t) && /soyad|cinsiyet|renci/i.test(t)) {
+        top = l.bbox.y1;
+        const og = (l.words || []).find(w => /renci|^ö[ğg]r/i.test(w.text)); if (og) xOg = og.bbox.x0;
+      } else if (top >= 0 && /say[ıi]s[ıi]|toplam/i.test(t)) bot = Math.min(bot, l.bbox.y0);
+    }
+    const out = [];
+    for (const l of lines) {
+      if (top >= 0 && (l.bbox.y1 <= top || l.bbox.y0 >= bot)) continue;
+      const r = parseLine(l.text); if (!r) continue;
+      const first = r.name.split(" ")[0];
+      const fw = (l.words || []).find(w => w.text.toLocaleUpperCase("tr").replace(/[^A-ZÇĞİÖŞÜ]/g, "") === first.replace(/[^A-ZÇĞİÖŞÜ]/g, ""));
+      out.push({ ...r, y0: l.bbox.y0, y1: l.bbox.y1, nx: fw ? fw.bbox.x0 : null, cy: fw ? (fw.bbox.y0 + fw.bbox.y1) / 2 : null, lh: fw ? fw.bbox.y1 - fw.bbox.y0 : null, xOg });
+    }
+    // cinsiyet sütunu satırların çoğunda okunduysa, cinsiyeti olmayan satırlar parazittir (sayfa altı, masa vb.)
+    if (out.filter(r => r.cins).length >= 3) return out.filter(r => r.cins);
+    return out;
+  }
+  // okumaları birleştir: aynı öğrenci tek satır, en iyi ad ve numara seçilir
+  function ocrMerge(reads) {
+    const all = [];
+    for (const L of reads) for (const r of L) {
+      const o = all.find(a => ayniAd(a.name, r.name) || (a.y0 != null && r.y0 != null && Math.abs((a.y0 + a.y1) / 2 - (r.y0 + r.y1) / 2) < (a.y1 - a.y0) * 0.6 && ayniAd(a.name.split(" ").slice(-1)[0], r.name.split(" ").slice(-1)[0])));
+      if (!o) { all.push({ ...r }); continue; }
+      if (adPuan(r.name) > adPuan(o.name)) o.name = r.name;
+      if ((r.emin && !o.emin) || (!o.no && r.no)) { o.no = r.no; o.sira = r.sira; o.emin = r.emin; }
+      if (o.nx == null && r.nx != null) { o.nx = r.nx; o.cy = r.cy; o.lh = r.lh; o.y0 = r.y0; o.y1 = r.y1; }
+      if (o.xOg == null) o.xOg = r.xOg;
+      o.cins = o.cins || r.cins;
+    }
+    return all;
+  }
+  // numara geçişi: adların solundaki numara sütunları tek parça, yalnız rakam ve seyrek metin (psm 11) olarak yeniden okunur;
+  // her rakam y konumuna göre en yakın satıra verilir (satır okumasında "135" → "3", "1 54" → "54" oluyordu)
+  async function ocrNo(w, cv, rows) {
+    const R = rows.filter(r => r.nx != null && r.cy != null); if (!R.length) return;
+    const lh = R.map(r => r.lh).sort((a, b) => a - b)[R.length >> 1];
+    const xs = Math.max(0, Math.min(...R.map(r => r.nx)) - Math.round(lh * 0.6));
+    const ys = Math.max(0, Math.min(...R.map(r => r.cy)) - lh * 2), ye = Math.min(cv.height, Math.max(...R.map(r => r.cy)) + lh * 2);
+    if (xs < lh) return;
+    const cc = document.createElement("canvas"); cc.width = xs + 40; cc.height = Math.round(ye - ys) + 40;
+    const cx = cc.getContext("2d"); cx.fillStyle = "#fff"; cx.fillRect(0, 0, cc.width, cc.height); cx.drawImage(cv, 0, ys, xs, ye - ys, 20, 20, xs, ye - ys);
+    await w.setParameters({ tessedit_pageseg_mode: "11", tessedit_char_whitelist: "0123456789" });
+    const { data } = await w.recognize(cc);
+    await w.setParameters({ tessedit_char_whitelist: "" });
+    const ws = (data.words || []).map(x => ({ t: x.text.replace(/\D/g, ""), x: (x.bbox.x0 + x.bbox.x1) / 2 - 20, y: (x.bbox.y0 + x.bbox.y1) / 2 - 20 + ys, h: x.bbox.y1 - x.bbox.y0 }))
+      .filter(x => x.t && x.t.length <= 6 && x.h > lh * 0.4 && x.h < lh * 2);
+    if (!ws.length) return;
+    // sütunlar: başlıktaki "Öğrenci" konumu; yoksa rakamların x konumlarındaki en büyük boşluk
+    let cut = null;
+    const xOg = R.find(r => r.xOg != null);
+    if (xOg) cut = xOg.xOg - lh;
+    else {
+      const sx = ws.map(x => x.x).sort((a, b) => a - b); let g = 0;
+      for (let i = 1; i < sx.length; i++) if (sx[i] - sx[i - 1] > g) { g = sx[i] - sx[i - 1]; if (g > lh * 3) cut = (sx[i] + sx[i - 1]) / 2; }
+    }
+    const pitch = R.length > 1 ? (Math.max(...R.map(r => r.cy)) - Math.min(...R.map(r => r.cy))) / (R.length - 1) : lh * 2;
+    const ata = (list, key) => {   // en yakın satır-rakam çiftleri, her biri bir kez
+      const pairs = [];
+      list.forEach((x, i) => R.forEach((r, j) => { const d = Math.abs(x.y - r.cy); if (d < pitch * 0.55) pairs.push([d, i, j]); }));
+      pairs.sort((a, b) => a[0] - b[0]);
+      const ui = new Set(), uj = new Set(), got = new Map();
+      for (const [, i, j] of pairs) if (!ui.has(i) && !uj.has(j)) { ui.add(i); uj.add(j); got.set(R[j], list[i].t); }
+      return got;
+    };
+    const noW = cut == null ? ws : ws.filter(x => x.x >= cut), siW = cut == null ? [] : ws.filter(x => x.x < cut);
+    const noM = ata(noW, "no"), siM = ata(siW, "sira");
+    const sirali = [...R].sort((a, b) => a.cy - b.cy);
+    for (const r of R) {
+      let no = noM.get(r); const si = siM.get(r);
+      if (si) r.sira = si;
+      if (!no) {
+        // rakam geçişi bulamadı; satır okumasındaki tek sayı büyük olasılıkla sıra no'dur ("9 ÜNAL CARAN")
+        if (r.no && !r.emin && (r.no === r.sira || +r.no === sirali.indexOf(r) + 1)) r.no = "";
+        continue;
+      }
+      if (r.no && r.no !== no && r.no !== r.sira) {
+        // iki okuma çelişiyor: biri ötekini içeriyorsa ("6" / "65") uzunu alınır; yine de kontrol için sarı kalır
+        if (r.no.length > no.length && r.no.includes(no)) no = r.no;
+        r.no = no; r.emin = false; continue;
+      }
+      r.no = no; r.emin = cut != null || !!r.emin;
+    }
+  }
   // tablo (Excel/CSV): başlık satırında Öğrenci No / Adı / Soyadı sütunları aranır; bulunamazsa satırlar metin gibi okunur
   function parseRows(rows) {
     const norm = v => String(v == null ? "" : v).trim();
@@ -2321,28 +2424,49 @@
   // (yatay çizgiler harf sanılıp satıra "o", "z" gibi parazit ekliyordu)
   // <img> ile açılır: telefon fotoğrafının EXIF yönü her tarayıcıda uygulanır (Firefox'ta createImageBitmap yan okuyabiliyor)
   async function ocrImg(file) { const u = URL.createObjectURL(file), im = new Image(); im.src = u; try { await im.decode(); } finally { setTimeout(() => URL.revokeObjectURL(u), 5000); } return im; }
-  // rot: 0 / 90 / 270 — fotoğraf yan çekildiyse denenir
+  // rot: 0 / 90 / 270 — fotoğraf yan çekildiyse denenir. Hafif eğiklik (±4°) tablo çizgilerinden ölçülüp düzeltilir:
+  // eğik çizgi silinemiyor, rakamlara yapışıp okul numarasını bozuyordu.
   async function ocrPrep(src, rot = 0) {
     const bw = rot ? src.naturalHeight : src.naturalWidth, bh = rot ? src.naturalWidth : src.naturalHeight;
     let sc = 3000 / bw; if (bw * sc * bh * sc > 16e6) sc = Math.sqrt(16e6 / (bw * bh));
     const w = Math.round(bw * sc), h = Math.round(bh * sc);
     const c = document.createElement("canvas"); c.width = w; c.height = h;
     const x = c.getContext("2d", { willReadFrequently: true });
-    x.save(); x.translate(w / 2, h / 2); x.rotate(rot * Math.PI / 180);
-    const dw = src.naturalWidth * sc, dh = src.naturalHeight * sc; x.drawImage(src, -dw / 2, -dh / 2, dw, dh); x.restore();
-    const im = x.getImageData(0, 0, w, h), d = im.data, n = w * h, g = new Uint8Array(n);
-    for (let i = 0; i < n; i++) g[i] = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8;
-    const W1 = w + 1, ii = new Uint32Array(W1 * (h + 1));
-    for (let y = 0; y < h; y++) { let rs = 0; for (let xx = 0; xx < w; xx++) { rs += g[y * w + xx]; ii[(y + 1) * W1 + xx + 1] = ii[y * W1 + xx + 1] + rs; } }
-    const r = Math.max(8, Math.round(w / 120)), dark = new Uint8Array(n);
-    for (let y = 0; y < h; y++) {
-      const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
-      for (let xx = 0; xx < w; xx++) {
-        const x0 = Math.max(0, xx - r), x1 = Math.min(w, xx + r + 1);
-        const S = ii[y1 * W1 + x1] - ii[y0 * W1 + x1] - ii[y1 * W1 + x0] + ii[y0 * W1 + x0];
-        if (g[y * w + xx] * (y1 - y0) * (x1 - x0) < S * 0.85) dark[y * w + xx] = 1;
+    const n = w * h, g = new Uint8Array(n), W1 = w + 1, ii = new Uint32Array(W1 * (h + 1)), dark = new Uint8Array(n);
+    const r = Math.max(8, Math.round(w / 120));
+    const draw = deg => {
+      x.fillStyle = "#fff"; x.fillRect(0, 0, w, h);
+      x.save(); x.translate(w / 2, h / 2); x.rotate((rot + deg) * Math.PI / 180);
+      const dw = src.naturalWidth * sc, dh = src.naturalHeight * sc; x.drawImage(src, -dw / 2, -dh / 2, dw, dh); x.restore();
+      const d = x.getImageData(0, 0, w, h).data;
+      for (let i = 0; i < n; i++) g[i] = (d[i * 4] * 77 + d[i * 4 + 1] * 150 + d[i * 4 + 2] * 29) >> 8;
+      for (let y = 0; y < h; y++) { let rs = 0; for (let xx = 0; xx < w; xx++) { rs += g[y * w + xx]; ii[(y + 1) * W1 + xx + 1] = ii[y * W1 + xx + 1] + rs; } }
+      for (let y = 0; y < h; y++) {
+        const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+        for (let xx = 0; xx < w; xx++) {
+          const x0 = Math.max(0, xx - r), x1 = Math.min(w, xx + r + 1);
+          const S = ii[y1 * W1 + x1] - ii[y0 * W1 + x1] - ii[y1 * W1 + x0] + ii[y0 * W1 + x0];
+          dark[y * w + xx] = g[y * w + xx] * (y1 - y0) * (x1 - x0) < S * 0.85 ? 1 : 0;
+        }
       }
-    }
+    };
+    draw(0);
+    // eğiklik: koyu piksellerin satır izdüşümü en keskin (çizgiler tek satırda toplanır) olan açı
+    const skew = () => {
+      const st = 3, pts = [];
+      for (let y = 0; y < h; y += st) for (let xx = 0; xx < w; xx += st) if (dark[y * w + xx]) pts.push(xx - w / 2, y);
+      let best = 0, bv = -1;
+      const hist = new Float64Array(Math.ceil((h + 2 * w) / st) + 2);   // kutu genişliği = örnek aralığı (yoksa 0° yapay tepe verir)
+      for (let a = -4; a <= 4.001; a += 0.2) {
+        const t = Math.tan(a * Math.PI / 180); hist.fill(0);
+        for (let i = 0; i < pts.length; i += 2) hist[Math.round((pts[i + 1] - pts[i] * t + w) / st)]++;
+        let v = 0; for (let i = 0; i < hist.length; i++) v += hist[i] * hist[i];
+        if (v > bv) { bv = v; best = a; }
+      }
+      return best;
+    };
+    const a = -skew();   // ölçülen eğimin tersi yönde döndürülür
+    if (Math.abs(a) >= 0.2) draw(a);
     const kill = new Uint8Array(n), minRun = Math.round(w * 0.06);
     for (let y = 0; y < h; y++) {
       let s = -1;
@@ -2352,8 +2476,39 @@
         else if (!on && s >= 0) { if (xx - s >= minRun) for (let yy = Math.max(0, y - 1); yy <= Math.min(h - 1, y + 1); yy++) kill.fill(1, yy * w + s, yy * w + xx); s = -1; }
       }
     }
-    for (let i = 0; i < n; i++) { const v = dark[i] && !kill[i] ? 0 : 255; d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255; }
+    for (let i = 0; i < n; i++) if (kill[i]) dark[i] = 0;
+    // kalan çizgi kırıntıları (ince, yatay parçalar) ve tozlar bağlı bileşen olarak silinir: rakamların yanında "—", "c", "ç" sanılıyordu
+    // (etiket ve yığın için kill / ii tamponları yeniden kullanılır: telefonda bellek yetmeyebiliyor)
+    kill.fill(0); const lab = kill, stk = ii, thin = Math.max(4, Math.round(w / 300)), toz = Math.round((w / 1000) ** 2 * 1.5);
+    for (let i0 = 0; i0 < n; i0++) {
+      if (!dark[i0] || lab[i0]) continue;
+      let sp = 0, cnt = 0, x0 = w, x1 = 0, y0 = h, y1 = 0; stk[sp++] = i0; lab[i0] = 1;
+      const seen = [];
+      while (sp) {
+        const i = stk[--sp], yy = (i / w) | 0, xx = i - yy * w; seen.push(i); cnt++;
+        if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy;
+        for (const j of [i - 1, i + 1, i - w, i + w]) if (j >= 0 && j < n && dark[j] && !lab[j] && Math.abs((j % w) - xx) <= 1) { lab[j] = 1; stk[sp++] = j; }
+      }
+      const bwid = x1 - x0 + 1, bhei = y1 - y0 + 1;
+      if (cnt < toz || (bhei <= thin && bwid >= 3 * bhei)) { for (const i of seen) dark[i] = 0; continue; }
+      // uzun, yatık bileşen (kıvrık sayfada eğik kalan çizgi, bazen rakama yapışık): sütun sütun ince parçalar silinir, rakam gövdesi kalır
+      if (bwid >= 6 * thin && bwid >= 4 * bhei) {
+        const set = new Set(seen);
+        for (let xx = x0; xx <= x1; xx++) {
+          let y = y0;
+          while (y <= y1) {
+            if (!set.has(y * w + xx)) { y++; continue; }
+            let e = y; while (e + 1 <= y1 && set.has((e + 1) * w + xx)) e++;
+            if (e - y + 1 <= thin) for (let yy = y; yy <= e; yy++) dark[yy * w + xx] = 0;
+            y = e + 1;
+          }
+        }
+      }
+    }
+    const im = x.createImageData(w, h), d = im.data;
+    for (let i = 0; i < n; i++) { const v = dark[i] ? 0 : 255; d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255; }
     x.putImageData(im, 0, 0);
+    c.egik = a;
     return c;
   }
   function loadScript(src) { return new Promise((res, rej) => { const e = document.createElement("script"); e.src = src; e.onload = res; e.onerror = () => rej(new Error("indirilemedi: " + src)); document.head.appendChild(e); }); }
@@ -2376,8 +2531,9 @@
   }
   function lstMerge(add, src) {
     if (!add.length) { $("#lstMsg").textContent = src + ": öğrenci satırı bulunamadı. Fotoğrafı daha yakından/düz çek ya da elle ekle."; return; }
-    const seen = new Set(lstW.map(s => s.no)); let n = 0;
-    add.forEach(st => { if (!seen.has(st.no)) { seen.add(st.no); lstW.push(st); n++; } });
+    // aynı okul no ya da (numarası boşsa) aynı ad zaten listede ise eklenmez
+    const seen = new Set(lstW.filter(s => s.no).map(s => s.no)), adlar = new Set(lstW.map(s => s.name)); let n = 0;
+    add.forEach(st => { if (st.no ? !seen.has(st.no) : !adlar.has(st.name)) { if (st.no) seen.add(st.no); adlar.add(st.name); lstW.push(st); n++; } });
     lstDraw(); $("#lstMsg").textContent = src + ": " + n + " öğrenci eklendi (toplam " + lstW.length + "). Kontrol edip Kaydet.";
   }
   $("#lstBtn").onclick = () => {
@@ -2419,14 +2575,14 @@
       const img = await ocrImg(f);
       let c = await ocrPrep(img), pass = "";
       const w = await Tesseract.createWorker("tur", 1, { logger: m => { if (m.status === "recognizing text") $("#lstMsg").textContent = "Liste okunuyor" + pass + "... %" + Math.round(m.progress * 100); } });
-      // iki okuma: blok (6) ve sütun (4) düzeni; sonuçlar ada göre birleştirilir, sıra no + okul no birlikte okunan tercih edilir
+      // iki okuma: blok (6) ve sütun (4) düzeni; satırlar ada göre birleştirilir, sonra okul no sütunu yalnız rakam olarak yeniden okunur
       const res = [];
       const ham = [];
-      const oku = async (cv, psm) => { await w.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" }); const { data } = await w.recognize(cv); ham.push("— " + psm + " —\n" + data.text.replace(/ {2,}/g, " ")); return parseText(data.text); };
-      // güvenilir satır: sıra no + okul no ve en az iki kelimelik ad
-      const puan = L => L.filter(r => r.emin && r.name.split(" ").filter(x => x.length >= 3).length >= 2).length;
-      pass = " (1/2)"; res.push(await oku(c, "6"));
-      if (puan(res[0]) < 2) {
+      const oku = async (cv, psm) => { await w.setParameters({ tessedit_pageseg_mode: psm, preserve_interword_spaces: "1" }); const { data } = await w.recognize(cv); ham.push("— " + psm + " —\n" + data.text.replace(/ {2,}/g, " ")); return ocrRows(data); };
+      // güvenilir satır: cinsiyet sütunu ya da sıra no + okul no okunmuş, adı en az iki kelime
+      const puan = L => L.filter(r => (r.cins || r.emin) && r.name.split(" ").filter(x => x.length >= 3).length >= 2).length;
+      pass = " (1/3)"; res.push(await oku(c, "6"));
+      if (puan(res[0]) < 3) {
         // neredeyse hiç satır çıkmadı: fotoğraf yan olabilir, iki yön de denenir, en çok satır veren alınır
         for (const rot of [90, 270]) {
           pass = " (yön " + rot + "°)";
@@ -2434,16 +2590,21 @@
           if (puan(L) > puan(res[0])) { res[0] = L; c = cr; }
         }
       }
-      pass = " (2/2)"; res.push(await oku(c, "4"));
+      pass = " (2/3)"; res.push(await oku(c, "4"));
+      let out = ocrMerge(res);
+      $("#lstMsg").textContent = "Okul numaraları okunuyor (3/3)...";
+      await ocrNo(w, c, out);
       await w.terminate();
+      ham.push("— numaralar —\n" + out.map(r => (r.sira || "?") + " " + (r.no || "?") + " " + r.name).join("\n"));
       $("#lstRaw").textContent = ham.join("\n"); $("#lstRawBox").hidden = false;
-      const by = new Map();
-      for (const L of res) for (const r of L) { const k = r.name, o = by.get(k); if (!o || (!o.emin && r.emin)) by.set(k, r); }
-      let out = [...by.values()].sort((a, b) => (+a.no) - (+b.no));
-      // liste düzgün okunduysa (en az 3 güvenilir satır) yalnız tek sayılı ve kısa adlı parazit satırlar atılır
-      if (puan(out) >= 3) out = out.filter(r => r.emin || r.name.split(" ").filter(x => x.length >= 3).length >= 2);
-      const unsure = out.filter(r => !r.emin).length;
-      lstMerge(out.map(r => ({ no: r.no, name: r.name, kontrol: !r.emin })), "Fotoğraf");
+      // numarası hiç okunamayan satır da listeye girer (sarı, numara boş): öğrenci kaybolmasın, elle yazılsın
+      out = out.filter(r => r.name.split(" ").filter(x => x.length >= 2).length >= 2 || r.emin);
+      // aynı okul no iki satırda: güvenilir olan kalır, öteki sarı + boş
+      const sayac = new Map(); out.forEach(r => r.no && sayac.set(r.no, (sayac.get(r.no) || 0) + 1));
+      out.forEach(r => { if (r.no && sayac.get(r.no) > 1 && !r.emin) r.no = ""; });
+      out.sort((a, b) => (+a.no || 1e9) - (+b.no || 1e9));
+      const unsure = out.filter(r => !r.emin || !r.no).length;
+      lstMerge(out.map(r => ({ no: r.no, name: r.name, kontrol: !r.emin || !r.no })), "Fotoğraf");
       if (unsure) $("#lstMsg").textContent += " Sarı satırların numarasını kontrol et.";
     } catch (er) { console.error(er); $("#lstMsg").textContent = "Okunamadı: " + (er.message || er) + " (internet gerekli ilk seferde)"; }
   };
